@@ -10,8 +10,9 @@ const QColor kTrace(120, 255, 120);
 const QColor kGrid(35, 48, 61);
 const QColor kAxisText(110, 125, 140);
 
-/// Chừa lề cho nhãn cự ly ở đáy và nhãn biên độ bên trái.
-constexpr int kLeft = 30, kBottom = 16, kTop = 6, kRight = 6;
+/// Chừa lề cho nhãn cự ly ở đáy. Hai bên chỉ cần lề mỏng — thang biên độ
+/// không ghi số nên không phải chừa chỗ bên trái.
+constexpr int kLeft = 6, kBottom = 16, kTop = 6, kRight = 6;
 
 } // namespace
 
@@ -98,12 +99,10 @@ void AScope::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
     }
 
+    // Thang biên độ 0..255 là cố định nên không ghi số, để dành chỗ cho đường
+    // biên độ; vạch lưới ngang vẫn đủ để ước lượng mức. Chỉ nhãn cự ly mới
+    // cần ghi, vì nó đổi theo cự ly tối đa.
     p.setPen(kAxisText);
-    for (int level : {0, 128, 255}) {
-        const double y = plot.top() + plot.height() * (1.0 - level / 255.0);
-        p.drawText(QRectF(0, y - 8, kLeft - 4, 16),
-                   Qt::AlignRight | Qt::AlignVCenter, QString::number(level));
-    }
     p.drawText(QRectF(plot.left(), plot.bottom() + 1, 60, kBottom - 2),
                Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("0"));
     p.drawText(QRectF(plot.right() - 90, plot.bottom() + 1, 90, kBottom - 2),
