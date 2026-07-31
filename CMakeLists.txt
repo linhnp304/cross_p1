@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 # Tên dự án cũng là tên file chạy. Tách dự án mới thì đổi đúng dòng này và
 # src/appinfo.h. Chỉ dùng chữ không dấu — đây là tên file thật trên đĩa; tên
 # hiển thị (có dấu được) nằm trong src/appinfo.h.
-project(cross_p1 VERSION 0.1.0 LANGUAGES CXX)
+project(ar0101 VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -23,7 +23,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Qt
+      # Linux dùng Qt của apt chứ không phải bản tải riêng: artifact khi đó chỉ
+      # phụ thuộc vào đúng những gói mà README bảo người dùng cài, nên tải về là
+      # chạy được mà không phải dựng Qt riêng.
+      - name: Install Qt (Linux, apt)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev qt6-qpa-plugins
+
+      - name: Install Qt (Windows, macOS)
+        if: runner.os != 'Linux'
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
@@ -37,17 +47,53 @@ jobs:
         run: sed -n 's/^project(\([A-Za-z0-9_-]*\).*/name=\1/p' CMakeLists.txt >> "$GITHUB_OUTPUT"
 
       - name: Configure
+        if: runner.os != 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      # Bản dựng ở đây trỏ vào thư mục Qt của máy CI, nơi khác không có. Thêm
+      # hai đường của Homebrew (Apple Silicon / Intel) vào rpath thì trên máy
+      # người dùng chỉ cần `brew install qt` là chạy.
+      - name: Configure (macOS — thêm rpath tới Qt của Homebrew)
+        if: runner.os == 'macOS'
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_BUILD_RPATH=/opt/homebrew/lib;/usr/local/lib"
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Upload build artifacts
+      # --- Windows: đóng gói đủ thư viện, tải về là chạy ---------------------
+      # windeployqt chép Qt DLL + plugin nền tảng vào cạnh file chạy;
+      # --compiler-runtime thêm cả runtime của MSVC, để máy chưa cài
+      # Visual C++ Redistributable vẫn mở được.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "${{ steps.app.outputs.name }}"
+          $exe = Get-ChildItem -Path build -Recurse -Filter "$name.exe" | Select-Object -First 1
+          if (-not $exe) { throw "khong tim thay $name.exe trong build/" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item $exe.FullName dist/
+          $deploy = if ($env:QT_ROOT_DIR) { Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe" } else { "windeployqt" }
+          & $deploy --release --no-translations --compiler-runtime "dist/$name.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt that bai" }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Upload build artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.app.outputs.name }}-${{ matrix.os }}
+          path: dist/**
+          if-no-files-found: error
+
+      - name: Upload build artifacts (Linux, macOS)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.app.outputs.name }}-${{ matrix.os }}
           path: |
             build/**/${{ steps.app.outputs.name }}
-            build/**/${{ steps.app.outputs.name }}.exe
             build/**/${{ steps.app.outputs.name }}.app
           if-no-files-found: ignore

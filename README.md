@@ -1,4 +1,4 @@
-# cross_p1 — AR01.01
+# ar0101 — AR01.01
 
 Màn hình trắc thủ ra đa, Qt Widgets đa nền tảng (Ubuntu, Windows, macOS) — một codebase, build & chạy trên cả ba hệ điều hành.
 
@@ -15,7 +15,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-Chạy binary sinh ra trong thư mục `build/` (ví dụ `build/cross_p1` trên Linux/macOS, `build/Release/cross_p1.exe` trên Windows).
+Chạy binary sinh ra trong thư mục `build/` (ví dụ `build/ar0101` trên Linux/macOS, `build/Release/ar0101.exe` trên Windows).
 
 ## File cấu hình
 
@@ -145,13 +145,13 @@ Biến môi trường (tên khai trong [src/appinfo.h](src/appinfo.h), hiện l�
 `MX01_TILES_DIR`) đè lên tất cả — tiện khi thử nhanh:
 
 ```bash
-MX01_TILES_DIR=/duong/dan/khac ./cross_p1
+MX01_TILES_DIR=/duong/dan/khac ./ar0101
 ```
 
 Bộ mang đi máy khác nên có bố cục:
 
 ```
-cross_p1                      ← file chạy
+ar0101                      ← file chạy
 mx01.json                   ← cấu hình hiển thị (tự sinh ở lần chạy đầu)
 params.json                 ← tham số và danh sách cổng (tự sinh ở lần chạy đầu)
 maps/mt/<kiểu-nền>/         ← tile bản đồ MapTiler, mỗi kiểu một thư mục
@@ -194,6 +194,53 @@ Việc còn lại sau khi đổi tên:
 > Bỏ cờ này thì chữ tiếng Việt trên giao diện sẽ thành ký tự lạ khi build bằng
 > Visual Studio. GCC và Clang thì mặc định đã đúng.
 
-## CI
+## Tải bản dựng sẵn (CI)
 
-GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) build project trên `ubuntu-latest`, `windows-latest`, `macos-latest` ở mỗi push/PR vào `main`.
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) build ở mỗi
+push/PR vào `main` và đính kèm bản chạy cho cả ba nền tảng. Vào tab **Actions** →
+chọn lần chạy mới nhất → mục **Artifacts** ở cuối trang.
+
+| Artifact | Cần cài thêm gì |
+|---|---|
+| `ar0101-windows-latest` | **Không cần gì** — giải nén rồi chạy `ar0101.exe` |
+| `ar0101-ubuntu-latest` | Thư viện Qt 6 của hệ điều hành, xem bên dưới |
+| `ar0101-macos-15` | Qt 6 qua Homebrew, xem bên dưới |
+
+Cả ba đều chỉ có **file chạy**. Nền bản đồ (`maps/`) không nằm trong repo nên
+phải chép sang riêng — thiếu thì phần mềm vẫn chạy, chỉ để nền trống.
+
+### Windows
+
+Bản Windows đã được `windeployqt` gói sẵn Qt DLL, plugin nền tảng và cả runtime
+của MSVC. Giải nén cả thư mục rồi chạy `ar0101.exe` — **không** tách riêng file
+`.exe` ra khỏi thư mục, nó cần các DLL nằm cạnh.
+
+### Ubuntu
+
+```bash
+sudo apt install libqt6widgets6 libqt6network6 qt6-qpa-plugins
+```
+
+`qt6-qpa-plugins` là bắt buộc — thiếu nó phần mềm báo *"could not load the Qt
+platform plugin xcb"* rồi thoát.
+
+Bản trên CI được build bằng chính Qt trong kho apt của `ubuntu-latest`, nên chạy
+được trên bản Ubuntu đó trở đi. Máy dùng bản Ubuntu cũ hơn thì build lại từ mã
+nguồn (xem mục [Build](#build)) — cần thêm `qt6-base-dev`.
+
+```bash
+chmod +x ar0101 && ./ar0101
+```
+
+### macOS
+
+```bash
+brew install qt
+```
+
+Rồi mở `ar0101.app`. Lần đầu macOS sẽ chặn vì bản dựng chưa ký; vào **System
+Settings → Privacy & Security** bấm *Open Anyway*, hoặc gỡ cờ cách ly:
+
+```bash
+xattr -dr com.apple.quarantine ar0101.app
+```
