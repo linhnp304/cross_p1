@@ -11,11 +11,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-15 (Sequoia) instead of macos-latest: the latter migrated to
-        # macOS 26 (Tahoe) whose SDK dropped the AGL framework that Qt6's
-        # prebuilt binaries still reference at link time. The resulting binary
-        # still runs on macOS 26.x.
-        os: [ubuntu-latest, windows-latest, macos-15]
+        # Ghim bản OS chứ không dùng -latest: build trên bản CŨ NHẤT còn hỗ trợ
+        # thì file chạy mới dùng được cả trên bản mới (glibc và Qt tương thích
+        # xuôi, không tương thích ngược).
+        #
+        # ubuntu-24.04 (không phải ubuntu-latest): dựng với glibc và Qt của
+        #   24.04 nên chạy được trên cả 24.04 lẫn 26.04. Dùng -latest thì hôm
+        #   GitHub đổi sang bản mới hơn là artifact hết chạy trên 24.04.
+        # macos-15 (không phải macos-latest): bản sau đã lên macOS 26 (Tahoe),
+        #   SDK của nó bỏ framework AGL mà bản Qt6 dựng sẵn vẫn tham chiếu lúc
+        #   liên kết. File chạy sinh ra vẫn dùng được trên macOS 26.x.
+        os: [ubuntu-24.04, windows-latest, macos-15]
 
     runs-on: ${{ matrix.os }}
 

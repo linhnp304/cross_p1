@@ -203,7 +203,7 @@ chọn lần chạy mới nhất → mục **Artifacts** ở cuối trang.
 | Artifact | Cần cài thêm gì |
 |---|---|
 | `ar0101-windows-latest` | **Không cần gì** — giải nén rồi chạy `ar0101.exe` |
-| `ar0101-ubuntu-latest` | Thư viện Qt 6 của hệ điều hành, xem bên dưới |
+| `ar0101-ubuntu-24.04` | Thư viện Qt 6 của hệ điều hành, xem bên dưới |
 | `ar0101-macos-15` | Qt 6 qua Homebrew, xem bên dưới |
 
 Cả ba đều chỉ có **file chạy**. Nền bản đồ (`maps/`) không nằm trong repo nên
@@ -224,8 +224,8 @@ sudo apt install libqt6widgets6 libqt6network6 qt6-qpa-plugins
 `qt6-qpa-plugins` là bắt buộc — thiếu nó phần mềm báo *"could not load the Qt
 platform plugin xcb"* rồi thoát.
 
-Bản trên CI được build bằng chính Qt trong kho apt của `ubuntu-latest`, nên chạy
-được trên bản Ubuntu đó trở đi. Máy dùng bản Ubuntu cũ hơn thì build lại từ mã
+Bản trên CI được build bằng chính Qt trong kho apt của **Ubuntu 24.04**, nên chạy
+được trên Ubuntu 24.04 trở đi. Máy dùng bản cũ hơn thì build lại từ mã
 nguồn (xem mục [Build](#build)) — cần thêm `qt6-base-dev`.
 
 ```bash
