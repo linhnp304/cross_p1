@@ -1,6 +1,7 @@
 #include "radarview.h"
 
 #include "geo.h"
+#include "radarvideo.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -25,6 +26,17 @@ constexpr double kMinAzSpacingPx   = 28.0;
 const QColor kGridBright(198, 222, 88);
 const QColor kSiteColor(255, 146, 38);
 const QColor kTextColor(206, 226, 138);
+const QColor kSweepColor(170, 255, 170);
+
+/// Nét vẽ của lưới, xếp từ lớp thưa (đậm) tới lớp dày (mảnh). Vòng cự ly tối
+/// đa dùng nét đậm nhất để luôn nổi lên trên mọi lớp.
+QPen gridPen(int alpha, double width)
+{
+    QPen pen(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(),
+                    alpha));
+    pen.setWidthF(width);
+    return pen;
+}
 
 } // namespace
 
@@ -78,10 +90,18 @@ void RadarView::setSettings(const AppSettings &s)
             m_tiles.open(dir);
     }
 
+    invalidateCaches();
+
     if (siteMoved || rangeChanged)
         resetView();
     else
         update();
+}
+
+void RadarView::setVideo(const RadarVideo *video)
+{
+    m_video = video;
+    update();
 }
 
 void RadarView::resetView()
@@ -89,7 +109,13 @@ void RadarView::resetView()
     // Lúc này widget có thể chưa được bố trí xong nên chưa biết kích thước thật;
     // để lần vẽ kế tiếp tính giúp.
     m_needsFit = true;
+    invalidateCaches();
     update();
+}
+
+void RadarView::invalidateCaches()
+{
+    m_cachesDirty = true;
 }
 
 void RadarView::fitToRange()
@@ -100,7 +126,8 @@ void RadarView::fitToRange()
     // Chọn mức phóng sao cho đường kính cự ly tối đa lọt gọn trong khung nhìn,
     // chừa thêm chút lề để còn thấy nhãn phương vị.
     const double span = qMax(1.0, double(qMin(width(), height())));
-    const double wantPxPerKm = span / (2.3 * qMax(0.5, m_settings.maxRangeKm));
+    const double wantPxPerKm =
+        span / (2.3 * qMax(AppSettings::kMinRangeKm, m_settings.maxRangeKm));
     const double mpwu = geo::metersPerWorldUnit(m_settings.siteLat);
     const double scale = wantPxPerKm * mpwu / 1000.0;
 
@@ -145,6 +172,19 @@ double RadarView::pixelsPerKm() const
     return 1000.0 / geo::metersPerWorldUnit(m_settings.siteLat) * scale;
 }
 
+double RadarView::maxRangeRadiusPx() const
+{
+    // Đo bằng chính phép chiếu dùng để vẽ vòng tròn, chứ không nhân
+    // pixelsPerKm(): hai cách lệch nhau chút ít vì Mercator, và mép ảnh nền
+    // tạp mà không trùng vòng cự ly tối đa thì nhìn ra ngay.
+    double lat = 0.0, lng = 0.0;
+    geo::destination(m_settings.siteLat, m_settings.siteLng, 0.0,
+                     m_settings.maxRangeKm, lat, lng);
+    const QPointF c = geoToScreen(m_settings.siteLat, m_settings.siteLng);
+    const QPointF n = geoToScreen(lat, lng);
+    return std::hypot(n.x() - c.x(), n.y() - c.y());
+}
+
 // -------------------------------------------------------------------- vẽ ---
 
 void RadarView::paintEvent(QPaintEvent *)
@@ -152,31 +192,68 @@ void RadarView::paintEvent(QPaintEvent *)
     if (m_needsFit)
         fitToRange();
 
+    const QSize want = size() * devicePixelRatioF();
+    if (m_cachesDirty || m_mapCache.size() != want)
+        rebuildCaches();
+
     QPainter p(this);
+    p.drawPixmap(0, 0, m_mapCache);
+
+    // Nền tạp nằm dưới lưới: lưới vẽ nhạt nên nền tạp phủ lên là mất lưới.
+    drawVideo(p);
+
+    p.drawPixmap(0, 0, m_gridCache);
+
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setRenderHint(QPainter::TextAntialiasing, true);
+    drawSweepLine(p);
+    drawSiteMarker(p);
+}
 
-    p.fillRect(rect(), Qt::black);   // tắt bản đồ thì nền đen tuyệt đối
+void RadarView::rebuildCaches()
+{
+    m_cachesDirty = false;
 
-    int tilesDrawn = 0;
-    if (m_settings.mapVisible) {
-        if (m_settings.isTcStyle())
-            drawVectorMap(p);
-        else
-            tilesDrawn = drawMap(p);
+    const qreal dpr = devicePixelRatioF();
+    const QSize want = size() * dpr;
+
+    m_mapCache = QPixmap(want);
+    m_mapCache.setDevicePixelRatio(dpr);
+    m_gridCache = QPixmap(want);
+    m_gridCache.setDevicePixelRatio(dpr);
+    m_gridCache.fill(Qt::transparent);
+
+    // --- lớp nền bản đồ ---
+    {
+        QPainter p(&m_mapCache);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        p.fillRect(rect(), Qt::black);   // tắt bản đồ thì nền đen tuyệt đối
+
+        int tilesDrawn = 0;
+        if (m_settings.mapVisible) {
+            if (m_settings.isTcStyle())
+                drawVectorMap(p);
+            else
+                tilesDrawn = drawMap(p);
+        }
+
+        if (m_settings.mapVisible) {
+            const QString note = mapNote(tilesDrawn);
+            if (!note.isEmpty()) {
+                p.setPen(QColor(110, 125, 140));
+                p.drawText(rect().adjusted(10, 0, -10, -8),
+                           Qt::AlignLeft | Qt::AlignBottom, note);
+            }
+        }
     }
 
-    drawRangeRings(p);
-    drawAzimuthLines(p);
-    drawSiteMarker(p);
-
-    if (m_settings.mapVisible) {
-        const QString note = mapNote(tilesDrawn);
-        if (!note.isEmpty()) {
-            p.setPen(QColor(110, 125, 140));
-            p.drawText(rect().adjusted(10, 0, -10, -8),
-                       Qt::AlignLeft | Qt::AlignBottom, note);
-        }
+    // --- lớp lưới cự ly / phương vị ---
+    {
+        QPainter p(&m_gridCache);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        drawRangeRings(p);
+        drawAzimuthLines(p);
     }
 }
 
@@ -266,43 +343,47 @@ int RadarView::drawMap(QPainter &p)
 
 void RadarView::drawRangeRings(QPainter &p) const
 {
-    if (m_settings.ringMode == RingMode::Off)
-        return;
+    // Vòng cự ly tối đa vẽ cả khi đã tắt vòng tròn cự ly: nó là biên của màn
+    // hình ra đa, và là chỗ để các đường chia độ kết thúc.
+    if (m_settings.ringMode != RingMode::Off) {
+        const RingMode mode = m_settings.ringMode;
 
-    QPen thin(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(), 48));
-    thin.setWidthF(1.0);
-    QPen mid(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(), 90));
-    mid.setWidthF(1.0);
-    QPen bold(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(), 165));
-    bold.setWidthF(1.6);
+        // Vẽ từ lớp dày nhất tới lớp thưa nhất để nét đậm luôn nằm trên. Bước
+        // tính bằng đơn vị 0.1 km: 1 = 0.1 km, 5 = 0.5 km, 10 = 1 km, 50 = 5 km.
+        if (mode == RingMode::R01)
+            drawRingLayer(p, 1, 5, gridPen(28, 1.0), false);    // 0.1 km, bỏ trùng 0.5
+        if (mode == RingMode::R01 || mode == RingMode::R05)
+            drawRingLayer(p, 5, 10, gridPen(48, 1.0), false);   // 0.5 km, bỏ trùng 1
+        if (mode != RingMode::R5)
+            drawRingLayer(p, 10, 50, gridPen(90, 1.0), false);  // 1 km, bỏ trùng 5
+        drawRingLayer(p, 50, 0, gridPen(165, 1.6), true);       // 5 km, có nhãn
+    }
 
-    // Vẽ từ lớp dày nhất tới lớp thưa nhất để nét đậm luôn nằm trên.
-    if (m_settings.ringMode == RingMode::R05)
-        drawRingLayer(p, 1, 2, thin, false);      // mỗi 0.5 km, bỏ vòng trùng 1 km
-    if (m_settings.ringMode == RingMode::R05 || m_settings.ringMode == RingMode::R1)
-        drawRingLayer(p, 2, 10, mid, false);      // mỗi 1 km, bỏ vòng trùng 5 km
-    drawRingLayer(p, 10, 0, bold, true);          // mỗi 5 km, có nhãn
+    drawMaxRangeRing(p);
 }
 
-void RadarView::drawRingLayer(QPainter &p, int stepHalfKm, int skipHalfKm,
+void RadarView::drawRingLayer(QPainter &p, int stepTenthKm, int skipTenthKm,
                               const QPen &pen, bool withLabels) const
 {
-    const double stepKm = stepHalfKm * 0.5;
+    const double stepKm = stepTenthKm * 0.1;
     if (stepKm * pixelsPerKm() < kMinRingSpacingPx)
         return;
 
-    const int maxHalfKm = int(std::floor(m_settings.maxRangeKm * 2.0 + 1e-6));
-    if (maxHalfKm < stepHalfKm)
+    // Dừng hẳn bên trong cự ly tối đa: vòng ngoài cùng là việc của
+    // drawMaxRangeRing, nếu không hai vòng sẽ chồng nhau khi cự ly tối đa
+    // đúng bằng một bội của bước.
+    const int lastTenthKm = int(std::floor(m_settings.maxRangeKm * 10.0 - 1e-6));
+    if (lastTenthKm < stepTenthKm)
         return;
 
     p.setPen(pen);
     constexpr int kSegments = 180;
 
-    for (int u = stepHalfKm; u <= maxHalfKm; u += stepHalfKm) {
-        if (skipHalfKm > 0 && u % skipHalfKm == 0)
+    for (int u = stepTenthKm; u <= lastTenthKm; u += stepTenthKm) {
+        if (skipTenthKm > 0 && u % skipTenthKm == 0)
             continue;   // bán kính này đã có ở lớp thưa hơn
 
-        const double r = u * 0.5;
+        const double r = u * 0.1;
         QPolygonF poly;
         poly.reserve(kSegments + 1);
         for (int i = 0; i <= kSegments; ++i) {
@@ -327,19 +408,48 @@ void RadarView::drawRingLayer(QPainter &p, int stepHalfKm, int skipHalfKm,
     }
 }
 
+void RadarView::drawMaxRangeRing(QPainter &p) const
+{
+    const double r = m_settings.maxRangeKm;
+    if (r * pixelsPerKm() < 2.0)
+        return;
+
+    constexpr int kSegments = 240;
+    QPolygonF poly;
+    poly.reserve(kSegments + 1);
+    for (int i = 0; i <= kSegments; ++i) {
+        double lat = 0.0, lng = 0.0;
+        geo::destination(m_settings.siteLat, m_settings.siteLng,
+                         i * 360.0 / kSegments, r, lat, lng);
+        poly << geoToScreen(lat, lng);
+    }
+
+    p.setPen(gridPen(200, 1.8));
+    p.drawPolyline(poly);
+
+    // Nhãn đặt ở phía tây chứ không phía bắc: các nhãn cự ly 5 km đều xếp dọc
+    // tia bắc, cự ly tối đa mà gần một bội của 5 km là hai nhãn chồng lên nhau.
+    double lat = 0.0, lng = 0.0;
+    geo::destination(m_settings.siteLat, m_settings.siteLng, 270.0, r, lat, lng);
+    const QPointF at = geoToScreen(lat, lng);
+
+    p.setPen(kTextColor);
+    p.drawText(QRectF(at.x() + 8, at.y() - 8, 80, 16),
+               Qt::AlignLeft | Qt::AlignVCenter,
+               QStringLiteral("%1 km").arg(r, 0, 'g', 6));
+}
+
 void RadarView::drawAzimuthLines(QPainter &p) const
 {
     if (m_settings.azimuthMode == AzimuthMode::Off)
         return;
 
-    QPen mid(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(), 90));
-    mid.setWidthF(1.0);
-    QPen bold(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(), 165));
-    bold.setWidthF(1.6);
-
-    if (m_settings.azimuthMode == AzimuthMode::A10)
-        drawAzimuthLayer(p, 10, 30, mid, false);  // mỗi 10 độ, bỏ đường trùng 30 độ
-    drawAzimuthLayer(p, 30, 0, bold, true);       // mỗi 30 độ, có nhãn
+    const AzimuthMode mode = m_settings.azimuthMode;
+    if (mode == AzimuthMode::A5)
+        drawAzimuthLayer(p, 5, 10, gridPen(48, 1.0), false);   // 5 độ, bỏ trùng 10
+    if (mode == AzimuthMode::A5 || mode == AzimuthMode::A10)
+        drawAzimuthLayer(p, 10, 30, gridPen(90, 1.0), false);  // 10 độ, bỏ trùng 30
+    drawAzimuthLayer(p, 30, 0, gridPen(165, 1.6), true);       // 30 độ, có nhãn
 }
 
 void RadarView::drawAzimuthLayer(QPainter &p, int stepDeg, int skipDeg,
@@ -396,11 +506,47 @@ void RadarView::drawSiteMarker(QPainter &p) const
     p.drawEllipse(c, 1.6, 1.6);
 }
 
+void RadarView::drawVideo(QPainter &p) const
+{
+    if (!m_video || !m_video->hasInk())
+        return;
+
+    const double r = maxRangeRadiusPx();
+    if (r < 1.0)
+        return;
+
+    const QPointF c = geoToScreen(m_settings.siteLat, m_settings.siteLng);
+    const QRectF dst(c.x() - r, c.y() - r, 2 * r, 2 * r);
+    if (!dst.intersects(QRectF(rect())))
+        return;   // đĩa nền tạp đã trôi hẳn ra ngoài khung nhìn
+
+    // Nội suy khi co giãn: ảnh nền tạp có bán kính cố định, không nội suy thì
+    // lúc phóng to sẽ thấy rõ từng điểm ảnh vuông.
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    p.drawImage(dst, m_video->image());
+}
+
+void RadarView::drawSweepLine(QPainter &p) const
+{
+    if (!m_video || m_video->lastAngleDeg() < 0.0)
+        return;
+
+    double lat = 0.0, lng = 0.0;
+    geo::destination(m_settings.siteLat, m_settings.siteLng,
+                     m_video->lastAngleDeg(), m_settings.maxRangeKm, lat, lng);
+
+    QPen pen(kSweepColor, 1.4);
+    p.setPen(pen);
+    p.drawLine(geoToScreen(m_settings.siteLat, m_settings.siteLng),
+               geoToScreen(lat, lng));
+}
+
 // ------------------------------------------------------------ tương tác ----
 
 void RadarView::resizeEvent(QResizeEvent *e)
 {
     QWidget::resizeEvent(e);
+    invalidateCaches();
     layoutZoomSlider();
 }
 
@@ -432,6 +578,7 @@ void RadarView::mouseMoveEvent(QMouseEvent *e)
         m_dragLastPos = e->position();
         m_center -= QPointF(delta.x() / scale, delta.y() / scale);
         m_center.setY(qBound(0.0, m_center.y(), 1.0));
+        invalidateCaches();
         update();   // rê chuột không kéo thì khung nhìn không đổi, khỏi vẽ lại
     }
 
@@ -475,6 +622,7 @@ void RadarView::setZoom(double z, const QPointF &anchorScreen)
     m_center += anchorWorld - afterWorld;
     m_center.setY(qBound(0.0, m_center.y(), 1.0));
 
+    invalidateCaches();
     syncZoomSlider();
     update();
 }

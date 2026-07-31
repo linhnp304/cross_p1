@@ -10,6 +10,7 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QLabel;
 class QPushButton;
 class QRadioButton;
 class QSlider;
@@ -56,6 +57,9 @@ private:
     QCheckBox *m_tcPlaceNames = nullptr;
     QCheckBox *m_tcProvinces  = nullptr;
 
+    QSlider        *m_videoFade     = nullptr;
+    QLabel         *m_videoFadeText = nullptr;
+
     QDoubleSpinBox *m_siteLat       = nullptr;
     QDoubleSpinBox *m_siteLng       = nullptr;
     QPushButton    *m_applySite     = nullptr;
@@ -64,9 +68,11 @@ private:
     QRadioButton *m_ring5   = nullptr;
     QRadioButton *m_ring1   = nullptr;
     QRadioButton *m_ring05  = nullptr;
+    QRadioButton *m_ring01  = nullptr;
     QRadioButton *m_ringOff = nullptr;
 
     QRadioButton *m_az30  = nullptr;
     QRadioButton *m_az10  = nullptr;
+    QRadioButton *m_az5   = nullptr;
     QRadioButton *m_azOff = nullptr;
 };

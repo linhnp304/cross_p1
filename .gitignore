@@ -45,9 +45,10 @@ docs-local/
 .env
 .env.*
 
-# Tile bản đồ đã tải (hàng chục MB) và file cấu hình sinh lúc chạy
+# Tile bản đồ đã tải (hàng chục MB) và các file cấu hình sinh lúc chạy
 maps/
 mx01.json
+params.json
 
 # Python
 __pycache__/

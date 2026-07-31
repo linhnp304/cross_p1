@@ -21,6 +21,11 @@ inline QString organizationName() { return QStringLiteral("MX"); }
 /// đĩa nên **chỉ dùng chữ không dấu**.
 inline QString configFileName() { return QStringLiteral("mx01.json"); }
 
+/// Tên file tham số kỹ thuật và danh sách cổng UDP, cũng đặt cạnh file chạy.
+/// Tách khỏi configFileName() vì hai nhóm này thuộc về hai người khác nhau:
+/// cấu hình hiển thị là của trắc thủ, tham số là của người lắp đặt hệ thống.
+inline QString paramsFileName() { return QStringLiteral("params.json"); }
+
 /// Biến môi trường đè lên đường dẫn thư mục bản đồ. Cũng chỉ chữ không dấu.
 inline const char *tilesDirEnvVar() { return "MX01_TILES_DIR"; }
 

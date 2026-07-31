@@ -4,17 +4,24 @@
 #include "tilecache.h"
 #include "vectormap.h"
 
+#include <QPixmap>
 #include <QPointF>
 #include <QWidget>
 
 class QSlider;
 class QTransform;
+class RadarVideo;
 
 /// Panel 1 — màn hình hiển thị chính.
 ///
-/// Vẽ nền bản đồ số (giai đoạn sau), vòng tròn cự ly và đường chia phương vị
+/// Vẽ nền bản đồ số, nền tạp ra đa, vòng tròn cự ly và đường chia phương vị
 /// quanh tâm đài. Hỗ trợ kéo chuột để dịch khung nhìn, cuộn chuột / thanh
 /// trượt để phóng to thu nhỏ.
+///
+/// Nền bản đồ và lưới cự ly được dựng sẵn vào hai QPixmap và chỉ dựng lại khi
+/// khung nhìn hoặc cài đặt đổi. Lúc có dữ liệu, panel này vẽ lại ~25 lần mỗi
+/// giây; dựng lại cả nền vector hay ghép lại hàng chục tile ở mỗi lần vẽ thì
+/// không thể mượt được.
 class RadarView : public QWidget
 {
     Q_OBJECT
@@ -23,6 +30,9 @@ public:
     explicit RadarView(QWidget *parent = nullptr);
 
     void setSettings(const AppSettings &s);
+
+    /// Nguồn ảnh nền tạp. Con trỏ do nơi khác giữ, phải sống lâu hơn panel này.
+    void setVideo(const RadarVideo *video);
 
     /// Hẹn căn lại khung nhìn: tâm đài vào giữa, mức phóng vừa cự ly tối đa.
     /// Việc căn thực sự hoãn tới lần vẽ kế tiếp, khi widget đã có kích thước thật.
@@ -52,7 +62,15 @@ private:
     /// Số pixel trên màn hình ứng với 1 km mặt đất, tại vĩ độ tâm đài.
     double pixelsPerKm() const;
 
+    /// Bán kính vòng cự ly tối đa trên màn hình, đo đúng theo cách vẽ vòng
+    /// tròn — để mép ảnh nền tạp trùng khít với vòng ngoài cùng.
+    double maxRangeRadiusPx() const;
+
     // --- vẽ ---
+    /// Dựng lại hai lớp tĩnh (nền bản đồ, lưới cự ly) vào bộ nhớ đệm.
+    void rebuildCaches();
+    void invalidateCaches();
+
     /// Vẽ nền bản đồ số rồi phủ một lớp tối theo mức độ sáng đã cài.
     /// Trả về số tile thực sự vẽ được — 0 nghĩa là vùng đang xem chưa tải.
     /// Không phải const vì việc đọc tile có cập nhật bộ nhớ đệm.
@@ -68,11 +86,24 @@ private:
     void drawAzimuthLines(QPainter &p) const;
     void drawSiteMarker(QPainter &p) const;
 
-    /// Vẽ một lớp vòng tròn. Bước tính theo đơn vị 0.5 km để so trùng bằng số
-    /// nguyên (tránh sai số dấu phẩy động); skipHalfKm = 0 nghĩa là không bỏ
+    /// Dán ảnh nền tạp lên bản đồ, căn theo tâm đài và cự ly tối đa.
+    void drawVideo(QPainter &p) const;
+
+    /// Vệt quét hiện hành, từ tâm đài ra vòng cự ly tối đa.
+    void drawSweepLine(QPainter &p) const;
+
+    /// Vẽ một lớp vòng tròn. Bước tính theo đơn vị 0.1 km để so trùng bằng số
+    /// nguyên (tránh sai số dấu phẩy động); skipTenthKm = 0 nghĩa là không bỏ
     /// vòng nào. Cả lớp bị bỏ qua nếu các vòng nằm quá sát nhau trên màn hình.
-    void drawRingLayer(QPainter &p, int stepHalfKm, int skipHalfKm,
+    /// Các lớp luôn dừng **hẳn bên trong** cự ly tối đa — vòng ngoài cùng do
+    /// drawMaxRangeRing vẽ.
+    void drawRingLayer(QPainter &p, int stepTenthKm, int skipTenthKm,
                        const QPen &pen, bool withLabels) const;
+
+    /// Vòng tròn ở đúng cự ly tối đa, luôn vẽ và luôn nét đậm. Nhờ nó mà các
+    /// đường chia độ luôn kết thúc trên một vòng, kể cả khi cự ly tối đa không
+    /// chia hết cho bước vòng tròn đang chọn.
+    void drawMaxRangeRing(QPainter &p) const;
 
     /// Tương tự cho một lớp đường chia phương vị, bước tính bằng độ.
     void drawAzimuthLayer(QPainter &p, int stepDeg, int skipDeg,
@@ -99,4 +130,11 @@ private:
 
     TileCache m_tiles;
     VectorMap m_vector;
+
+    const RadarVideo *m_video = nullptr;
+
+    // Hai lớp tĩnh dựng sẵn. m_gridCache trong suốt để nền tạp lọt xuống dưới.
+    QPixmap m_mapCache;
+    QPixmap m_gridCache;
+    bool    m_cachesDirty = true;
 };

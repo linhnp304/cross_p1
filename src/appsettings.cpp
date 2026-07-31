@@ -18,6 +18,7 @@ QString ringToString(RingMode m)
     case RingMode::R5:  return QStringLiteral("5km");
     case RingMode::R1:  return QStringLiteral("1km");
     case RingMode::R05: return QStringLiteral("0.5km");
+    case RingMode::R01: return QStringLiteral("0.1km");
     case RingMode::Off: break;
     }
     return QStringLiteral("off");
@@ -28,6 +29,7 @@ RingMode ringFromString(const QString &s, RingMode fallback)
     if (s == QLatin1String("5km"))   return RingMode::R5;
     if (s == QLatin1String("1km"))   return RingMode::R1;
     if (s == QLatin1String("0.5km")) return RingMode::R05;
+    if (s == QLatin1String("0.1km")) return RingMode::R01;
     if (s == QLatin1String("off"))   return RingMode::Off;
     return fallback;
 }
@@ -37,6 +39,7 @@ QString azimuthToString(AzimuthMode m)
     switch (m) {
     case AzimuthMode::A30: return QStringLiteral("30");
     case AzimuthMode::A10: return QStringLiteral("10");
+    case AzimuthMode::A5:  return QStringLiteral("5");
     case AzimuthMode::Off: break;
     }
     return QStringLiteral("off");
@@ -46,6 +49,7 @@ AzimuthMode azimuthFromString(const QString &s, AzimuthMode fallback)
 {
     if (s == QLatin1String("30"))  return AzimuthMode::A30;
     if (s == QLatin1String("10"))  return AzimuthMode::A10;
+    if (s == QLatin1String("5"))   return AzimuthMode::A5;
     if (s == QLatin1String("off")) return AzimuthMode::Off;
     return fallback;
 }
@@ -143,6 +147,7 @@ bool AppSettings::load()
                                    ringMode);
     azimuthMode   = azimuthFromString(o.value(QStringLiteral("azimuthMode")).toString(),
                                       azimuthMode);
+    videoFadeSec  = o.value(QStringLiteral("videoFadeSec")).toInt(videoFadeSec);
     tilesDir      = o.value(QStringLiteral("tilesDir")).toString(tilesDir);
     mapStyle      = o.value(QStringLiteral("mapStyle")).toString(mapStyle);
     vectorDir     = o.value(QStringLiteral("vectorDir")).toString(vectorDir);
@@ -162,7 +167,8 @@ bool AppSettings::load()
     mapBrightness = qBound(0, mapBrightness, 100);
     siteLat       = qBound(-85.0, siteLat, 85.0);
     siteLng       = qBound(-180.0, siteLng, 180.0);
-    maxRangeKm    = qBound(0.5, maxRangeKm, 2000.0);
+    maxRangeKm    = qBound(kMinRangeKm, maxRangeKm, kMaxRangeKm);
+    videoFadeSec  = qBound(0, videoFadeSec, 10);
     return true;
 }
 
@@ -179,6 +185,7 @@ bool AppSettings::save() const
     o[QStringLiteral("maxRangeKm")]    = maxRangeKm;
     o[QStringLiteral("ringMode")]      = ringToString(ringMode);
     o[QStringLiteral("azimuthMode")]   = azimuthToString(azimuthMode);
+    o[QStringLiteral("videoFadeSec")]  = videoFadeSec;
     o[QStringLiteral("tilesDir")]      = tilesDir;
     o[QStringLiteral("mapStyle")]      = mapStyle;
     o[QStringLiteral("vectorDir")]     = vectorDir;

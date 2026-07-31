@@ -1,17 +1,24 @@
 #include "mainwindow.h"
 
 #include "appinfo.h"
+#include "ascope.h"
+#include "connectiontab.h"
+#include "lanstatus.h"
+#include "paramstab.h"
 #include "radarview.h"
 #include "settingstab.h"
 #include "tilecache.h"
+#include "udplink.h"
 
 #include <QApplication>
 #include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHostAddress>
 #include <QKeySequence>
 #include <QLabel>
 #include <QScrollArea>
+#include <QSet>
 #include <QShortcut>
 #include <QSplitter>
 #include <QTabWidget>
@@ -21,6 +28,14 @@
 #include <algorithm>
 
 namespace {
+
+/// Nhịp vẽ lại panel 1 và cửa sổ biên độ. 25 hình/giây là đủ mượt với tốc độ
+/// quay 6 vòng/phút, mà vẫn để dành phần lớn CPU cho việc nhận và giải mã.
+constexpr int kTickMs = 40;
+
+/// Làm mờ thưa hơn nhịp vẽ: một lượt làm mờ đụng cả triệu điểm ảnh, mà mắt
+/// không phân biệt được mờ 25 lần hay 13 lần mỗi giây.
+constexpr int kMinFadeMs = 75;
 
 /// Khung rỗng cho các phần sẽ làm ở giai đoạn sau.
 QWidget *makePlaceholder(const QString &text)
@@ -48,6 +63,17 @@ QString formatLatLng(double lat, double lng)
     return QStringLiteral("%1, %2").arg(lat, 0, 'f', 6).arg(lng, 0, 'f', 6);
 }
 
+/// Bọc một tab trong vùng cuộn: panel hẹp vẫn dùng được, và bề rộng tối thiểu
+/// của form không ép splitter phá vỡ tỉ lệ 70/30.
+QScrollArea *wrapInScroll(QWidget *content)
+{
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(content);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    return scroll;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -56,8 +82,14 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle(appinfo::displayName());
 
     m_settings.load();   // giữ mặc định nếu chưa có file
+    if (!m_params.load() || m_params.rx.isEmpty())
+        m_params.rx = AppParams::defaultRx();
 
     m_radar = new RadarView(this);
+    m_radar->setVideo(&m_video);
+
+    m_link = new UdpLink(this);
+    m_link->setZfbeat(m_params.zfbeat);
 
     // Panel 1 (70%) | Panel 2 (30%)
     auto *hSplit = new QSplitter(Qt::Horizontal, this);
@@ -84,6 +116,28 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_settingsTab, &SettingsTab::settingsChanged, this,
             &MainWindow::applySettings);
+    connect(m_paramsTab, &ParamsTab::paramsApplied, this, &MainWindow::applyParams);
+    connect(m_connectionTab, &ConnectionTab::endpointsChanged,
+            this, &MainWindow::applyEndpoints);
+    connect(m_connectionTab, &ConnectionTab::connectRequested,
+            this, &MainWindow::startLink);
+    connect(m_connectionTab, &ConnectionTab::disconnectRequested,
+            this, &MainWindow::stopLink);
+
+    // Lỗi mở cổng hiện ngay dưới bảng, không cắt ngang bằng hộp thoại — mở
+    // nhiều cổng thì sẽ là nhiều hộp thoại liên tiếp.
+    connect(m_link, &UdpLink::failed, this, [this](const QString &msg) {
+        m_connectionTab->setStatusText(msg, true);
+    });
+
+    // --- nhịp lấy dữ liệu và vẽ ---
+    m_tick = new QTimer(this);
+    m_tick->setInterval(kTickMs);
+    connect(m_tick, &QTimer::timeout, this, &MainWindow::onTick);
+
+    m_statusTick = new QTimer(this);
+    m_statusTick->setInterval(1000);
+    connect(m_statusTick, &QTimer::timeout, this, &MainWindow::refreshLinkStatus);
 
     // Đồng hồ hệ thống.
     auto *clock = new QTimer(this);
@@ -122,14 +176,26 @@ MainWindow::MainWindow(QWidget *parent)
     if (!stillThere)
         m_settings.mapStyle = styles.first().id;
 
+    // Thang cự ly đang để tự động thì giá trị trong file cấu hình chỉ là dấu
+    // vết của lần chạy trước — tính lại từ tham số cho khớp ngay lúc khởi động.
+    if (m_params.autoRange)
+        m_settings.maxRangeKm = qBound(AppSettings::kMinRangeKm, m_params.rmaxKm(),
+                                       AppSettings::kMaxRangeKm);
+
     // Ghi lại ngay lúc khởi động: file luôn tồn tại để người dùng có cái mà
     // sửa (tilesDir, mapStyle), và phản ánh đúng những gì phần mềm đang dùng
     // sau khi đã chuyển đổi bố cục cũ hay lùi về kiểu nền còn dùng được.
     m_settings.save();
+    m_params.save();
 
     // Trước khi rê chuột, thanh trạng thái hiện luôn toạ độ tâm đài.
     m_settingsTab->setSettings(m_settings);
+    m_paramsTab->setParams(m_params);
+    m_connectionTab->setParams(m_params);
     m_radar->setSettings(m_settings);
+    m_ascope->setMaxRangeKm(m_settings.maxRangeKm);
+    refreshLanHosts();
+
     m_siteLabel->setText(tr("Tâm đài  %1")
                              .arg(formatLatLng(m_settings.siteLat, m_settings.siteLng)));
     m_cursorLabel->setText(tr("Con trỏ  %1")
@@ -143,27 +209,27 @@ QWidget *MainWindow::buildRightColumn()
     auto *tabs = new QTabWidget;
     tabs->setDocumentMode(true);
 
+    m_connectionTab = new ConnectionTab;
+    m_paramsTab     = new ParamsTab;
+    m_settingsTab   = new SettingsTab;
+
     tabs->addTab(makePlaceholder(tr("Danh sách quỹ đạo — làm ở giai đoạn sau")),
                  tr("Danh sách"));
-    tabs->addTab(makePlaceholder(tr("Kết nối — làm ở giai đoạn sau")),
-                 tr("Kết nối"));
+    tabs->addTab(wrapInScroll(m_connectionTab), tr("Kết nối"));
+    tabs->addTab(wrapInScroll(m_paramsTab), tr("Tham số"));
 
-    // Bọc trong vùng cuộn: panel hẹp vẫn dùng được, và bề rộng tối thiểu của
-    // form không ép splitter phá vỡ tỉ lệ 70/30.
-    m_settingsTab = new SettingsTab;
-    auto *scroll = new QScrollArea;
-    scroll->setWidget(m_settingsTab);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    tabs->addTab(scroll, tr("Cài đặt"));
-    tabs->setCurrentWidget(scroll);
+    auto *settingsScroll = wrapInScroll(m_settingsTab);
+    tabs->addTab(settingsScroll, tr("Cài đặt"));
+    tabs->setCurrentWidget(settingsScroll);
+
+    m_ascope = new AScope;
 
     // Panel 2.1 (70% chiều dọc) | Panel 2.2 (30%)
     auto *vSplit = new QSplitter(Qt::Vertical);
     vSplit->setChildrenCollapsible(false);
     vSplit->setHandleWidth(2);
     vSplit->addWidget(tabs);
-    vSplit->addWidget(makePlaceholder(tr("Cửa sổ biên độ — làm ở giai đoạn sau")));
+    vSplit->addWidget(m_ascope);
     vSplit->setStretchFactor(0, 7);
     vSplit->setStretchFactor(1, 3);
     vSplit->setSizes({700, 300});
@@ -183,6 +249,12 @@ QWidget *MainWindow::buildStatusBar()
 
     // Nhóm giữa nằm chính giữa: hai bên dùng cùng hệ số giãn nên rộng bằng nhau.
     auto *left = new QWidget(bar);
+    auto *leftLay = new QHBoxLayout(left);
+    leftLay->setContentsMargins(6, 2, 0, 2);
+    leftLay->setSpacing(0);
+    m_lan = new LanIndicator(left);
+    leftLay->addWidget(m_lan, 0);
+    leftLay->addStretch(1);
 
     auto *centre = new QWidget(bar);
     auto *centreLay = new QHBoxLayout(centre);
@@ -207,10 +279,151 @@ QWidget *MainWindow::buildStatusBar()
     return bar;
 }
 
+// ------------------------------------------------------------- cài đặt -----
+
 void MainWindow::applySettings(const AppSettings &s)
 {
     m_settings = s;
     m_radar->setSettings(s);
+    m_ascope->setMaxRangeKm(s.maxRangeKm);
     m_siteLabel->setText(tr("Tâm đài  %1").arg(formatLatLng(s.siteLat, s.siteLng)));
     m_settings.save();
+}
+
+void MainWindow::applyParams(const AppParams &p)
+{
+    // Chỉ lấy phần tham số kỹ thuật: danh sách cổng do tab "Kết nối" giữ, bản
+    // sao bên tab "Tham số" có thể đã cũ.
+    m_params.fs             = p.fs;
+    m_params.b              = p.b;
+    m_params.tc             = p.tc;
+    m_params.zfbeat         = p.zfbeat;
+    m_params.autoFromStatus = p.autoFromStatus;
+    m_params.autoRange      = p.autoRange;
+    m_params.clampToRange();
+
+    m_link->setZfbeat(m_params.zfbeat);
+    if (m_params.autoRange)
+        updateRangeFromParams();
+
+    m_params.save();
+}
+
+void MainWindow::applyEndpoints(const QVector<NetEndpoint> &rx)
+{
+    m_params.rx = rx;
+    m_params.save();
+    refreshLanHosts();
+}
+
+void MainWindow::updateRangeFromParams()
+{
+    const double km = qBound(AppSettings::kMinRangeKm, m_params.rmaxKm(),
+                             AppSettings::kMaxRangeKm);
+    if (qFuzzyCompare(km, m_settings.maxRangeKm))
+        return;
+
+    m_settings.maxRangeKm = km;
+    m_settingsTab->setSettings(m_settings);   // không phát tín hiệu ngược lại
+    m_radar->setSettings(m_settings);
+    m_ascope->setMaxRangeKm(km);
+    m_settings.save();
+}
+
+// -------------------------------------------------------------- kết nối ----
+
+void MainWindow::startLink()
+{
+    if (m_params.rx.isEmpty()) {
+        m_connectionTab->setStatusText(tr("Chưa có cổng nào trong bảng"), true);
+        return;
+    }
+
+    m_video.clear();
+    m_ascope->clearTrace();
+    m_fadeClock.restart();
+
+    m_connectionTab->setStatusText(QString());
+    m_link->setZfbeat(m_params.zfbeat);
+    m_link->start(m_params.rx);
+    m_connectionTab->setRunning(true);
+
+    m_tick->start();
+    m_statusTick->start();
+    refreshLinkStatus();
+}
+
+void MainWindow::stopLink()
+{
+    m_link->stop();
+    m_tick->stop();
+    m_statusTick->stop();
+    m_connectionTab->setRunning(false);
+
+    // Giữ nguyên hình đang có trên màn hình: dừng nhận dữ liệu chứ không phải
+    // xoá màn hình, trắc thủ còn xem lại vệt cuối cùng.
+    m_radar->update();
+    refreshLinkStatus();
+}
+
+void MainWindow::onTick()
+{
+    m_link->drain(m_drained);
+    for (const rawpkt::RawVSweep &s : m_drained)
+        m_video.addSweep(s);
+
+    if (!m_drained.isEmpty())
+        m_ascope->setTrace(m_video.lastSweep());
+
+    const qint64 elapsed = m_fadeClock.isValid() ? m_fadeClock.elapsed() : 0;
+    if (elapsed >= kMinFadeMs) {
+        m_video.fade(m_settings.videoFadeSec, int(elapsed));
+        m_fadeClock.restart();
+    }
+
+    m_radar->update();
+}
+
+void MainWindow::refreshLinkStatus()
+{
+    const LinkStats s = m_link->stats();
+    if (!m_link->isRunning()) {
+        m_connectionTab->setStatusText(
+            tr("Đã dừng — nhận được %1 gói RAW_V").arg(s.rawV));
+        return;
+    }
+
+    QString text = tr("Đang nhận — RAW_V: %1, RAW_P: %2").arg(s.rawV).arg(s.rawP);
+    if (s.other > 0)
+        text += tr(", gói lạ: %1").arg(s.other);
+    if (s.droppedV > 0 || s.droppedRec > 0) {
+        text += tr(" — bỏ bớt %1 lượt quét, %2 gói ghi lưu")
+                    .arg(s.droppedV).arg(s.droppedRec);
+    }
+    m_connectionTab->setStatusText(text);
+}
+
+void MainWindow::refreshLanHosts()
+{
+    // Bỏ trùng lặp nhưng giữ thứ tự xuất hiện trong bảng, để danh sách trong
+    // cửa sổ trạng thái đọc theo được với bảng cổng.
+    QStringList hosts;
+    QSet<QString> seen;
+    const auto add = [&hosts, &seen](const QString &ip) {
+        const QString s = ip.trimmed();
+        if (s.isEmpty() || s == QLatin1String("0.0.0.0"))
+            return;   // "mọi máy" thì không có gì mà ping
+        if (!seen.contains(s)) {
+            seen.insert(s);
+            hosts << s;
+        }
+    };
+
+    for (const QVector<NetEndpoint> *list : {&m_params.rx, &m_params.tx}) {
+        for (const NetEndpoint &e : *list) {
+            add(e.localIp);
+            add(e.remoteIp);
+        }
+    }
+    m_lan->setHosts(hosts);
 }

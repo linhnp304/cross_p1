@@ -19,23 +19,36 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
-find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets Network)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
 
 qt_standard_project_setup()
 
 qt_add_executable(${PROJECT_NAME}
     src/main.cpp
     src/appinfo.h
+    src/appparams.cpp
+    src/appparams.h
     src/appsettings.cpp
     src/appsettings.h
+    src/ascope.cpp
+    src/ascope.h
+    src/connectiontab.cpp
+    src/connectiontab.h
     src/geo.h
+    src/lanstatus.cpp
+    src/lanstatus.h
     src/mainwindow.cpp
     src/mainwindow.h
+    src/paramstab.cpp
+    src/paramstab.h
     src/prjprojection.cpp
     src/prjprojection.h
+    src/radarvideo.cpp
+    src/radarvideo.h
     src/radarview.cpp
     src/radarview.h
+    src/rawpacket.h
     src/settingstab.cpp
     src/settingstab.h
     src/shapefile.cpp
@@ -43,11 +56,13 @@ qt_add_executable(${PROJECT_NAME}
     src/theme.h
     src/tilecache.cpp
     src/tilecache.h
+    src/udplink.cpp
+    src/udplink.h
     src/vectormap.cpp
     src/vectormap.h
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets Qt6::Network)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     WIN32_EXECUTABLE ON

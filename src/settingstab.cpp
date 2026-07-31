@@ -13,6 +13,18 @@
 #include <QSlider>
 #include <QVBoxLayout>
 
+namespace {
+
+/// Nhãn cạnh thanh trượt tốc độ mờ. Giá trị 0 là một chế độ riêng chứ không
+/// phải "0 giây", nên phải gọi thẳng tên ra.
+QString fadeText(int seconds)
+{
+    return seconds == 0 ? SettingsTab::tr("Không mờ")
+                        : SettingsTab::tr("%1 giây").arg(seconds);
+}
+
+} // namespace
+
 SettingsTab::SettingsTab(QWidget *parent)
     : QWidget(parent)
 {
@@ -79,22 +91,24 @@ SettingsTab::SettingsTab(QWidget *parent)
     auto *gridBox = new QGroupBox(tr("Vòng cự ly và phương vị"), this);
     auto *gridForm = new QFormLayout(gridBox);
 
+    // Đơn vị nằm ở nhãn chứ không phải hậu tố trong ô: ô nhập tới 0.001 km mà
+    // còn kèm chữ "km" thì phần số bị đẩy hẹp lại, gõ vào rất vướng.
     m_maxRange = new QDoubleSpinBox(gridBox);
-    m_maxRange->setDecimals(1);
-    m_maxRange->setRange(0.5, 2000.0);
-    m_maxRange->setSingleStep(1.0);
-    m_maxRange->setSuffix(tr(" km"));
-    gridForm->addRow(tr("Cự ly tối đa"), m_maxRange);
+    m_maxRange->setDecimals(3);
+    m_maxRange->setRange(AppSettings::kMinRangeKm, AppSettings::kMaxRangeKm);
+    m_maxRange->setSingleStep(0.1);
+    gridForm->addRow(tr("Cự ly tối đa (km)"), m_maxRange);
 
     // Hai dãy radio nằm chung một widget cha, nên phải tách nhóm loại trừ bằng
     // QButtonGroup — nếu không, chọn bên này sẽ bỏ chọn bên kia.
     m_ring5   = new QRadioButton(tr("5 km"), gridBox);
     m_ring1   = new QRadioButton(tr("1 km"), gridBox);
     m_ring05  = new QRadioButton(tr("0.5 km"), gridBox);
+    m_ring01  = new QRadioButton(tr("0.1 km"), gridBox);
     m_ringOff = new QRadioButton(tr("Tắt"), gridBox);
     auto *ringGroup = new QButtonGroup(this);
     auto *ringRow = new QHBoxLayout;
-    for (auto *b : {m_ring5, m_ring1, m_ring05, m_ringOff}) {
+    for (auto *b : {m_ring5, m_ring1, m_ring05, m_ring01, m_ringOff}) {
         ringGroup->addButton(b);
         ringRow->addWidget(b);
     }
@@ -103,19 +117,39 @@ SettingsTab::SettingsTab(QWidget *parent)
 
     m_az30  = new QRadioButton(tr("30°"), gridBox);
     m_az10  = new QRadioButton(tr("10°"), gridBox);
+    m_az5   = new QRadioButton(tr("5°"), gridBox);
     m_azOff = new QRadioButton(tr("Tắt"), gridBox);
     auto *azGroup = new QButtonGroup(this);
     auto *azRow = new QHBoxLayout;
-    for (auto *b : {m_az30, m_az10, m_azOff}) {
+    for (auto *b : {m_az30, m_az10, m_az5, m_azOff}) {
         azGroup->addButton(b);
         azRow->addWidget(b);
     }
     azRow->addStretch(1);
     gridForm->addRow(tr("Đường chia độ"), azRow);
 
+    // --- Nền tạp ra đa ---------------------------------------------------
+    auto *videoBox = new QGroupBox(tr("Nền tạp ra đa"), this);
+    auto *videoForm = new QFormLayout(videoBox);
+
+    m_videoFade = new QSlider(Qt::Horizontal, videoBox);
+    m_videoFade->setRange(0, 10);
+    m_videoFade->setPageStep(1);
+    m_videoFade->setTickPosition(QSlider::TicksBelow);
+    m_videoFade->setTickInterval(1);
+    m_videoFadeText = new QLabel(videoBox);
+    m_videoFadeText->setMinimumWidth(76);
+    m_videoFadeText->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    auto *fadeRow = new QHBoxLayout;
+    fadeRow->addWidget(m_videoFade, 1);
+    fadeRow->addWidget(m_videoFadeText, 0);
+    videoForm->addRow(tr("Tốc độ mờ video"), fadeRow);
+
     root->addWidget(mapBox);
     root->addWidget(siteBox);
     root->addWidget(gridBox);
+    root->addWidget(videoBox);
     root->addStretch(1);
 
     // --- Nối tín hiệu ----------------------------------------------------
@@ -136,8 +170,12 @@ SettingsTab::SettingsTab(QWidget *parent)
             this, &SettingsTab::updateTcEnabled);
     connect(m_maxRange, &QDoubleSpinBox::valueChanged, this, &SettingsTab::emitChange);
 
-    for (auto *b : {m_ring5, m_ring1, m_ring05, m_ringOff,
-                    m_az30, m_az10, m_azOff})
+    connect(m_videoFade, &QSlider::valueChanged, this,
+            [this](int v) { m_videoFadeText->setText(fadeText(v)); });
+    connect(m_videoFade, &QSlider::valueChanged, this, &SettingsTab::emitChange);
+
+    for (auto *b : {m_ring5, m_ring1, m_ring05, m_ring01, m_ringOff,
+                    m_az30, m_az10, m_az5, m_azOff})
         connect(b, &QRadioButton::toggled, this, &SettingsTab::emitChange);
 
     // Toạ độ tâm đài chỉ có hiệu lực khi bấm "Áp dụng".
@@ -201,17 +239,21 @@ void SettingsTab::setSettings(const AppSettings &s)
     m_siteLat->setValue(s.siteLat);
     m_siteLng->setValue(s.siteLng);
     m_maxRange->setValue(s.maxRangeKm);
+    m_videoFade->setValue(s.videoFadeSec);
+    m_videoFadeText->setText(fadeText(s.videoFadeSec));
 
     switch (s.ringMode) {
     case RingMode::R5:  m_ring5->setChecked(true);   break;
     case RingMode::R1:  m_ring1->setChecked(true);   break;
     case RingMode::R05: m_ring05->setChecked(true);  break;
+    case RingMode::R01: m_ring01->setChecked(true);  break;
     case RingMode::Off: m_ringOff->setChecked(true); break;
     }
 
     switch (s.azimuthMode) {
     case AzimuthMode::A30: m_az30->setChecked(true);  break;
     case AzimuthMode::A10: m_az10->setChecked(true);  break;
+    case AzimuthMode::A5:  m_az5->setChecked(true);   break;
     case AzimuthMode::Off: m_azOff->setChecked(true); break;
     }
 
@@ -234,14 +276,17 @@ void SettingsTab::emitChange()
     m_settings.tcPlaceNames  = m_tcPlaceNames->isChecked();
     m_settings.tcProvinces   = m_tcProvinces->isChecked();
     m_settings.maxRangeKm    = m_maxRange->value();
+    m_settings.videoFadeSec  = m_videoFade->value();
 
     if (m_ring5->isChecked())        m_settings.ringMode = RingMode::R5;
     else if (m_ring1->isChecked())   m_settings.ringMode = RingMode::R1;
     else if (m_ring05->isChecked())  m_settings.ringMode = RingMode::R05;
+    else if (m_ring01->isChecked())  m_settings.ringMode = RingMode::R01;
     else                             m_settings.ringMode = RingMode::Off;
 
     if (m_az30->isChecked())         m_settings.azimuthMode = AzimuthMode::A30;
     else if (m_az10->isChecked())    m_settings.azimuthMode = AzimuthMode::A10;
+    else if (m_az5->isChecked())     m_settings.azimuthMode = AzimuthMode::A5;
     else                             m_settings.azimuthMode = AzimuthMode::Off;
 
     // Chỉ nhận toạ độ mới khi người dùng bấm "Áp dụng".

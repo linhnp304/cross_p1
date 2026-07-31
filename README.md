@@ -5,7 +5,7 @@ Màn hình trắc thủ ra đa, Qt Widgets đa nền tảng (Ubuntu, Windows, ma
 ## Yêu cầu
 
 - CMake >= 3.16
-- Qt 6 (Widgets module)
+- Qt 6 (Widgets, Network)
 - Trình biên dịch hỗ trợ C++17 (GCC/Clang trên Linux/macOS, MSVC trên Windows)
 
 ## Build
@@ -19,11 +19,56 @@ Chạy binary sinh ra trong thư mục `build/` (ví dụ `build/cross_p1` trên
 
 ## File cấu hình
 
-`mx01.json` nằm **ngay cạnh file chạy**, sinh ra ở lần chạy đầu. Cả bộ (file
-chạy + cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
+Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần chạy đầu:
+
+| File | Chứa gì | Của ai |
+|---|---|---|
+| `mx01.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video | Trắc thủ |
+| `params.json` | Tham số kỹ thuật (Fs, B, Tc, ZFbeat) và danh sách cổng UDP | Người lắp đặt |
+
+Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
 
 > Lúc phát triển, file chạy nằm trong `build/` nên cấu hình cũng ở đó và sẽ mất
 > khi xoá thư mục `build`. Không sao — thiếu file thì phần mềm dùng giá trị mặc định.
+
+## Nhận dữ liệu ra đa
+
+Tab **Kết nối** liệt kê các cổng UDP nhận dữ liệu. Mặc định có sẵn ba dòng
+`UDP-RAW_V` (6001), `UDP-RAW_P` (6002), `UDP-STATUS` (6003) trên `127.0.0.1`.
+
+- `RemoteIP` để trống hoặc `0.0.0.0`, `RemotePort` để `0` → nhận từ **mọi máy /
+  mọi cổng**. Đây là mặc định, vì bên gửi thường dùng cổng nguồn ngẫu nhiên.
+- Cột **Tên** chỉ là nhãn cho người đọc. Gói tin được phân loại theo header của
+  chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
+- Bảng chỉ sửa được lúc đã dừng kết nối.
+
+Dữ liệu `RAW_V` (1024 điểm biên độ mỗi gói, ~400 gói/giây) hiện ở hai nơi: nền
+tạp trên bản đồ (panel 1) và đường biên độ trên cửa sổ biên độ (panel 2.2).
+
+Việc đọc socket và giải mã chạy trên một luồng riêng, đẩy vào hai bộ đệm tách
+biệt — một cho hiển thị, một dành sẵn cho chức năng ghi lưu ở giai đoạn sau.
+
+### Tab Tham số
+
+Cự ly tối đa suy ra từ tham số theo công thức rút gọn **Rmax = 75·Fs·Tc/B** (mét).
+Với giá trị mặc định Fs=1, B=154, Tc=2500 thì Rmax = 1217.53 m → **1.218 km**.
+
+- Bật **Tự động cập nhật thang cự ly** rồi bấm *Áp dụng* → ô "Cự ly tối đa" bên
+  tab Cài đặt và các vòng cự ly tự đổi theo.
+- Bật **Tự động nhận từ trạng thái lệnh điều khiển** → nút *Áp dụng* bị khoá
+  (mọi thay đổi vào thẳng) và ô tự cập nhật thang cự ly bị bật cố định.
+
+### Công cụ tạo giả dữ liệu
+
+Không có đài thật vẫn thử được toàn bộ đường nhận và hiển thị:
+
+```bash
+python3 tools/fake_raw_v.py
+```
+
+Gửi `RAW_V` tới `127.0.0.1:6001`, nhịp 2.5 ms, phương vị chạy đúng 6 vòng/phút,
+nền tạp ngẫu nhiên 10000–15000. Thêm `--targets 6` để có vài mục tiêu giả cho
+dễ nhìn ra thang cự ly. Xem `--help` để đổi cổng hoặc tốc độ vòng quét.
 
 ## Nền bản đồ số
 
@@ -106,8 +151,9 @@ MX01_TILES_DIR=/duong/dan/khac ./cross_p1
 Bộ mang đi máy khác nên có bố cục:
 
 ```
-cross_p1                    ← file chạy
-mx01.json                   ← cấu hình (tự sinh ở lần chạy đầu)
+cross_p1                      ← file chạy
+mx01.json                   ← cấu hình hiển thị (tự sinh ở lần chạy đầu)
+params.json                 ← tham số và danh sách cổng (tự sinh ở lần chạy đầu)
 maps/mt/<kiểu-nền>/         ← tile bản đồ MapTiler, mỗi kiểu một thư mục
 maps/tc/                    ← shapefile của lớp bản đồ TC
 ```
@@ -122,7 +168,7 @@ gom về **hai chỗ**, sửa xong là chạy — không phải đi tìm tên r�
 | Sửa ở đâu | Sửa cái gì |
 |---|---|
 | [CMakeLists.txt](CMakeLists.txt), dòng `project(...)` | Tên file chạy. **Chữ không dấu**, vì là tên file thật trên đĩa. |
-| [src/appinfo.h](src/appinfo.h) | Tên hiển thị, tên đơn vị, tên file cấu hình, biến môi trường. |
+| [src/appinfo.h](src/appinfo.h) | Tên hiển thị, tên đơn vị, tên hai file cấu hình, biến môi trường. |
 
 Tên hiển thị **viết tiếng Việt có dấu được** — nó chỉ ra tiêu đề cửa sổ và tiêu
 đề hộp thoại. Hai thứ này độc lập nhau:
@@ -130,7 +176,8 @@ Tên hiển thị **viết tiếng Việt có dấu được** — nó chỉ ra 
 ```
 project(x123)                                     ← file chạy: x123 / x123.exe
 appinfo::displayName() = "Ra đa tầm gần X123"     ← chữ trên thanh tiêu đề
-appinfo::configFileName() = "x123.json"           ← file cấu hình, không dấu
+appinfo::configFileName() = "x123.json"           ← cấu hình hiển thị, không dấu
+appinfo::paramsFileName() = "x123-params.json"    ← tham số và cổng, không dấu
 ```
 
 CI và `tools/download_tiles.py` tự đọc tên từ `project(...)` nên không phải sửa.

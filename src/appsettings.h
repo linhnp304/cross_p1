@@ -2,19 +2,22 @@
 
 #include <QString>
 
-/// Mật độ vòng tròn cự ly. Mỗi mức giữ nguyên các vòng của mức thưa hơn.
+/// Mật độ vòng tròn cự ly. Mỗi mức giữ nguyên các vòng của mức thưa hơn, và
+/// mức càng dày thì nét càng mảnh.
 enum class RingMode {
     Off,
     R5,     // vòng mỗi 5 km, nét đậm
     R1,     // thêm vòng mỗi 1 km
-    R05     // thêm vòng mỗi 0.5 km
+    R05,    // thêm vòng mỗi 0.5 km
+    R01     // thêm vòng mỗi 0.1 km
 };
 
 /// Mật độ đường chia phương vị.
 enum class AzimuthMode {
     Off,
     A30,    // đường mỗi 30 độ, nét đậm
-    A10     // thêm đường mỗi 10 độ
+    A10,    // thêm đường mỗi 10 độ
+    A5      // thêm đường mỗi 5 độ
 };
 
 /// Mã kiểu nền của lớp bản đồ TC. Không phải tên thư mục con trong tilesDir như
@@ -23,6 +26,11 @@ inline constexpr char kTcStyleId[] = "tc";
 
 /// Toàn bộ cấu hình người dùng, nạp/lưu ở dạng JSON.
 struct AppSettings {
+    /// Dải cự ly tối đa cho phép, dùng chung cho ô nhập và cho việc chặn giá
+    /// trị từ file. Cận dưới thấp vì cự ly tính từ tham số có thể rất ngắn.
+    static constexpr double kMinRangeKm = 0.1;
+    static constexpr double kMaxRangeKm = 2000.0;
+
     bool        mapVisible    = true;
     int         mapBrightness = 60;         // 0..100
     double      siteLat       = 21.028;
@@ -30,6 +38,10 @@ struct AppSettings {
     double      maxRangeKm    = 20.0;
     RingMode    ringMode      = RingMode::R1;
     AzimuthMode azimuthMode   = AzimuthMode::A30;
+
+    /// Số giây để một vệt nền tạp mờ hẳn. 0 = không làm mờ, giá trị mới đè lên
+    /// giá trị cũ và ảnh giữ nguyên trên màn hình.
+    int         videoFadeSec  = 3;         // 0..10
 
     /// Thư mục gốc chứa bản đồ; mỗi kiểu nền nằm trong một thư mục con mang
     /// tên style. Đường dẫn tuyệt đối thì dùng nguyên; tương đối thì tính từ
