@@ -23,14 +23,22 @@ inline constexpr int kBinsV  = 1024;              ///< số điểm biên độ 
 inline constexpr int kWordsV = 6 + kBinsV + 1;    ///< 6 trường đầu + Data_V + CheckSum
 inline constexpr int kSizeV  = kWordsV * 4;       ///< 1031*4 = 4124 byte
 
-// --- RAW_P: dữ liệu mục tiêu (giải mã ở giai đoạn sau) ----------------------
+// --- RAW_P: dữ liệu điểm dấu đơn xung ---------------------------------------
 
 inline constexpr quint32 kHeaderP   = 0xc4c3c2c1u;
 inline constexpr quint32 kCategoryP = 0x30180u;
 
-inline constexpr int kPlotsP = 64;
+inline constexpr int kPlotsP = 64;                ///< Data_P[64]
 inline constexpr int kWordsP = 7 + kPlotsP + 1;   ///< 72 từ
 inline constexpr int kSizeP  = kWordsP * 4;
+
+/// Data_P[0] là từ tiêu đề chu kỳ, nên tối đa còn 63 điểm dấu.
+inline constexpr int kMaxPlots = kPlotsP - 1;
+
+/// Số ô cự ly trong một chu kỳ. Trùng với số điểm biên độ của RAW_V (10 bit
+/// cự ly trong Data_P cũng cho đúng dải này), nên cùng một phép quy đổi
+/// `R = Rmax * ô / 1024` dùng được cho cả hai loại gói.
+inline constexpr int kRangeCells = 1024;
 
 /// Số nấc encoder trong một vòng quay. Góc tia = Azimuth * 360 / 4096.
 inline constexpr int kAzimuthSteps = 4096;
@@ -91,6 +99,62 @@ inline void decodeRawV(const char *data, quint32 zfbeat, RawVSweep &out)
     for (int i = 0; i < kBinsV; ++i) {
         const quint64 v = (quint64(word(data, 6 + i)) * 256u + half) / div;
         out.video[size_t(i)] = quint8(qMin<quint64>(v, 255));
+    }
+}
+
+/// Một điểm dấu đơn xung (plot) đã tách bit khỏi Data_P.
+struct RawPlot {
+    quint16 range     = 0;   ///< ô cự ly, 0..1023
+    quint16 amplitude = 0;   ///< biên độ phản xạ xung đơn, 0..65535
+    quint8  dopler    = 0;   ///< 0..31
+};
+
+/// Một chu kỳ RAW_P đã giải mã.
+///
+/// Cũng để dạng POD cỡ cố định như RawVSweep, vì cũng đi qua bộ đệm giữa luồng
+/// mạng và luồng giao diện. 400 chu kỳ mỗi giây mà cấp phát động từng cái thì
+/// riêng việc cấp phát đã tốn hơn cả việc xử lý.
+struct RawPCycle {
+    quint32 serial  = 0;
+    quint32 azimuth = 0;    ///< trường Azimuth của gói, 0..4095
+    quint32 azm     = 0;    ///< phương vị trong Data_P[0], bit 0..11
+    bool    azmValid = false; ///< Data_P[0] có bit 31 = 1 như mô tả giao thức
+    qint32  count   = 0;    ///< số plot thực sự có trong gói, 0..63
+    std::array<RawPlot, kMaxPlots> plots{};
+
+    /// Phương vị dùng để xử lý. Ưu tiên Data_P[0] (thuật toán tâm chùm đọc ở
+    /// đó), nhưng nếu từ đó không mang dấu đầu chu kỳ thì lùi về trường
+    /// Azimuth của gói — thà lấy trường kia còn hơn gom chùm quanh phương vị 0.
+    quint32 workAzimuth() const { return azmValid ? azm : azimuth; }
+};
+
+/// Giải mã RAW_P. Cách tách bit theo đúng mô tả giao thức:
+///
+///     Data_P[0]      bit 0..11  phương vị encoder
+///                    bit 31     =1, dấu đầu chu kỳ
+///     Data_P[1..63]  bit 0..15  amplitude
+///                    bit 16..25 ô cự ly
+///                    bit 26..30 dopler
+///                    bit 31     =0, dấu điểm dấu
+inline void decodeRawP(const char *data, RawPCycle &out)
+{
+    out.serial  = word(data, 3);
+    out.azimuth = word(data, 5) % kAzimuthSteps;
+
+    const quint32 head = word(data, 7);        // Data_P[0]
+    out.azm      = head & 0x0fffu;
+    out.azmValid = (head & 0x80000000u) != 0;
+
+    // Num_P là số plot; Data_P[0] không phải plot nên trần thật sự là 63. Gói
+    // hỏng khai Num_P lớn hơn thì cắt chứ không đọc lố mảng.
+    out.count = qBound(0, int(word(data, 6)), kMaxPlots);
+
+    for (int i = 0; i < out.count; ++i) {
+        const quint32 w = word(data, 8 + i);   // Data_P[1 + i]
+        RawPlot &p = out.plots[size_t(i)];
+        p.amplitude = quint16(w & 0xffffu);
+        p.range     = quint16((w >> 16) & 0x03ffu);
+        p.dopler    = quint8((w >> 26) & 0x1fu);
     }
 }
 

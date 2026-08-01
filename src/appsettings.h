@@ -1,6 +1,9 @@
 #pragma once
 
+#include "appcolors.h"
+
 #include <QString>
+#include <QStringList>
 
 /// Mật độ vòng tròn cự ly. Mỗi mức giữ nguyên các vòng của mức thưa hơn, và
 /// mức càng dày thì nét càng mảnh.
@@ -55,6 +58,28 @@ struct AppSettings {
     /// Thư mục dữ liệu shapefile của lớp bản đồ TC. Quy tắc đường dẫn giống
     /// tilesDir: tuyệt đối thì dùng nguyên, tương đối thì tính từ file chạy.
     QString     vectorDir     = QStringLiteral("maps/tc");
+
+    // --- điểm dấu và quỹ đạo ---
+    bool showTracks     = true;    ///< hiện quỹ đạo
+    bool showTrackInfo  = true;    ///< số đầu tốp phía trên, phương vị-cự ly bên phải
+    bool showPlots      = true;    ///< hiện điểm dấu tâm chùm
+    bool showPlotInfo   = false;   ///< phương vị - cự ly cạnh điểm dấu
+
+    /// Số vết lịch sử vẽ trên màn hình, 0 = không vẽ vết.
+    int  trackHistory   = 20;      // 0..100
+    static constexpr int kMaxHistory = 100;
+
+    /// Màu của các đối tượng đồ hoạ, sửa trong tab "Màu sắc".
+    AppColors   colors;
+
+    /// Danh sách tên phân loại mục tiêu. Chỉ số 0 trong danh sách ứng với
+    /// track_classify = 1; giá trị 0 luôn là "Chưa xác định". Người dùng sửa
+    /// thẳng trong file cấu hình, chưa cần giao diện quản lý.
+    QStringList classifyNames = defaultClassifyNames();
+    static QStringList defaultClassifyNames();
+
+    /// Tên phân loại để hiển thị. Trả về chuỗi rỗng khi classify = 0.
+    QString classifyName(quint32 classify) const;
 
     /// Ẩn/hiện từng lớp của kiểu nền TC.
     bool        tcAirRoutes   = true;

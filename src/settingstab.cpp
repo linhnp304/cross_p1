@@ -146,10 +146,44 @@ SettingsTab::SettingsTab(QWidget *parent)
     fadeRow->addWidget(m_videoFadeText, 0);
     videoForm->addRow(tr("Tốc độ mờ video"), fadeRow);
 
+    // --- Điểm dấu và quỹ đạo ---------------------------------------------
+    auto *objBox = new QGroupBox(tr("Điểm dấu và quỹ đạo"), this);
+    auto *objForm = new QFormLayout(objBox);
+
+    m_showTracks    = new QCheckBox(tr("Hiện quỹ đạo"), objBox);
+    m_showTrackInfo = new QCheckBox(tr("Hiện thông tin quỹ đạo"), objBox);
+    m_showPlots     = new QCheckBox(tr("Hiện điểm dấu"), objBox);
+    m_showPlotInfo  = new QCheckBox(tr("Hiện thông tin điểm dấu"), objBox);
+
+    m_showTrackInfo->setToolTip(tr("Số đầu tốp phía trên quỹ đạo, phương vị - "
+                                   "cự ly bên phải"));
+    m_showPlotInfo->setToolTip(tr("Phương vị - cự ly bên cạnh điểm dấu"));
+
+    // Thụt vào để nhìn ra ngay mục nào phụ thuộc mục nào — ô con bị khoá khi ô
+    // cha tắt, mà không thụt thì trông như bốn ô ngang hàng tự dưng khoá nhau.
+    m_showTrackInfo->setStyleSheet(QStringLiteral("margin-left: 18px;"));
+    m_showPlotInfo->setStyleSheet(QStringLiteral("margin-left: 18px;"));
+
+    for (auto *b : {m_showTracks, m_showTrackInfo, m_showPlots, m_showPlotInfo})
+        objForm->addRow(b);
+
+    m_history = new QSlider(Qt::Horizontal, objBox);
+    m_history->setRange(0, AppSettings::kMaxHistory);
+    m_history->setPageStep(10);
+    m_historyText = new QLabel(objBox);
+    m_historyText->setMinimumWidth(76);
+    m_historyText->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    auto *histRow = new QHBoxLayout;
+    histRow->addWidget(m_history, 1);
+    histRow->addWidget(m_historyText, 0);
+    objForm->addRow(tr("Độ dài vết lịch sử quỹ đạo"), histRow);
+
     root->addWidget(mapBox);
     root->addWidget(siteBox);
     root->addWidget(gridBox);
     root->addWidget(videoBox);
+    root->addWidget(objBox);
     root->addStretch(1);
 
     // --- Nối tín hiệu ----------------------------------------------------
@@ -178,10 +212,26 @@ SettingsTab::SettingsTab(QWidget *parent)
                     m_az30, m_az10, m_az5, m_azOff})
         connect(b, &QRadioButton::toggled, this, &SettingsTab::emitChange);
 
+    for (auto *b : {m_showTracks, m_showTrackInfo, m_showPlots, m_showPlotInfo}) {
+        connect(b, &QCheckBox::toggled, this, &SettingsTab::emitChange);
+        connect(b, &QCheckBox::toggled, this, &SettingsTab::updateObjectEnabled);
+    }
+
+    connect(m_history, &QSlider::valueChanged, this, [this](int v) {
+        m_historyText->setText(v == 0 ? tr("Không vẽ") : tr("%1 vết").arg(v));
+    });
+    connect(m_history, &QSlider::valueChanged, this, &SettingsTab::emitChange);
+
     // Toạ độ tâm đài chỉ có hiệu lực khi bấm "Áp dụng".
     connect(m_applySite, &QPushButton::clicked, this, &SettingsTab::emitChange);
 
     setSettings(m_settings);
+}
+
+void SettingsTab::updateObjectEnabled()
+{
+    m_showTrackInfo->setEnabled(m_showTracks->isChecked());
+    m_showPlotInfo->setEnabled(m_showPlots->isChecked());
 }
 
 std::array<QCheckBox *, 5> SettingsTab::tcBoxes() const
@@ -242,6 +292,14 @@ void SettingsTab::setSettings(const AppSettings &s)
     m_videoFade->setValue(s.videoFadeSec);
     m_videoFadeText->setText(fadeText(s.videoFadeSec));
 
+    m_showTracks->setChecked(s.showTracks);
+    m_showTrackInfo->setChecked(s.showTrackInfo);
+    m_showPlots->setChecked(s.showPlots);
+    m_showPlotInfo->setChecked(s.showPlotInfo);
+    m_history->setValue(s.trackHistory);
+    m_historyText->setText(s.trackHistory == 0 ? tr("Không vẽ")
+                                               : tr("%1 vết").arg(s.trackHistory));
+
     switch (s.ringMode) {
     case RingMode::R5:  m_ring5->setChecked(true);   break;
     case RingMode::R1:  m_ring1->setChecked(true);   break;
@@ -259,6 +317,7 @@ void SettingsTab::setSettings(const AppSettings &s)
 
     m_loading = false;
     updateTcEnabled();
+    updateObjectEnabled();
 }
 
 void SettingsTab::emitChange()
@@ -277,6 +336,12 @@ void SettingsTab::emitChange()
     m_settings.tcProvinces   = m_tcProvinces->isChecked();
     m_settings.maxRangeKm    = m_maxRange->value();
     m_settings.videoFadeSec  = m_videoFade->value();
+
+    m_settings.showTracks    = m_showTracks->isChecked();
+    m_settings.showTrackInfo = m_showTrackInfo->isChecked();
+    m_settings.showPlots     = m_showPlots->isChecked();
+    m_settings.showPlotInfo  = m_showPlotInfo->isChecked();
+    m_settings.trackHistory  = m_history->value();
 
     if (m_ring5->isChecked())        m_settings.ringMode = RingMode::R5;
     else if (m_ring1->isChecked())   m_settings.ringMode = RingMode::R1;

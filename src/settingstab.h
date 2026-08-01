@@ -44,6 +44,9 @@ private:
     /// Bật/tắt 5 ô ẩn/hiện lớp — chỉ dùng được với kiểu nền TC.
     void updateTcEnabled();
 
+    /// Khoá các ô con khi mục cha đang tắt (thông tin quỹ đạo / điểm dấu).
+    void updateObjectEnabled();
+
     /// Năm ô ẩn/hiện lớp TC, đúng thứ tự hiện trên giao diện.
     std::array<QCheckBox *, 5> tcBoxes() const;
 
@@ -59,6 +62,13 @@ private:
 
     QSlider        *m_videoFade     = nullptr;
     QLabel         *m_videoFadeText = nullptr;
+
+    QCheckBox *m_showTracks    = nullptr;
+    QCheckBox *m_showTrackInfo = nullptr;
+    QCheckBox *m_showPlots     = nullptr;
+    QCheckBox *m_showPlotInfo  = nullptr;
+    QSlider   *m_history       = nullptr;
+    QLabel    *m_historyText   = nullptr;
 
     QDoubleSpinBox *m_siteLat       = nullptr;
     QDoubleSpinBox *m_siteLng       = nullptr;

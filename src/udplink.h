@@ -43,6 +43,31 @@ private:
     std::atomic<quint64> m_dropped{0};
 };
 
+/// Bộ đệm chu kỳ RAW_P, cùng nguyên tắc với SweepQueue.
+///
+/// Để riêng khỏi SweepQueue chứ không gộp thành một hàng đợi chung: hai loại
+/// gói có cỡ khác nhau hàng chục lần, mà trần của hàng đợi thì tính theo số
+/// phần tử — gộp lại là một chu kỳ RAW_P 300 byte lại chiếm chỗ như một lượt
+/// quét RAW_V 1 KB.
+class PlotQueue
+{
+public:
+    explicit PlotQueue(int capacity = 4096) : m_capacity(capacity) {}
+
+    void push(const rawpkt::RawPCycle &c);
+    void drain(QVector<rawpkt::RawPCycle> &out);
+    void clear();
+
+    quint64 dropped() const { return m_dropped.load(std::memory_order_relaxed); }
+
+private:
+    mutable QMutex m_mutex;
+    std::deque<rawpkt::RawPCycle> m_queue;
+    int m_capacity;
+
+    std::atomic<quint64> m_dropped{0};
+};
+
 /// "Bộ đệm 2": giữ nguyên gói thô để ghi lưu.
 ///
 /// Giai đoạn này chưa ghi ra file, nên chỉ cần chặn trần dung lượng rồi bỏ gói
@@ -90,6 +115,7 @@ struct LinkStats {
     quint64 rawP      = 0;   ///< số gói RAW_P (giai đoạn sau mới giải mã)
     quint64 other     = 0;   ///< datagram không khớp giao thức nào
     quint64 droppedV  = 0;   ///< lượt quét bị bỏ vì bộ đệm hiển thị đầy
+    quint64 droppedP  = 0;   ///< chu kỳ RAW_P bị bỏ vì bộ đệm đầy
     quint64 droppedRec = 0;  ///< gói bị bỏ vì bộ đệm ghi lưu đầy
 };
 
@@ -118,6 +144,9 @@ public:
     /// Lấy các lượt quét nhận được từ lần gọi trước. Gọi từ luồng giao diện.
     void drain(QVector<rawpkt::RawVSweep> &out) { m_sweeps.drain(out); }
 
+    /// Tương tự cho các chu kỳ RAW_P.
+    void drainPlots(QVector<rawpkt::RawPCycle> &out) { m_cycles.drain(out); }
+
     LinkStats stats() const;
 
 signals:
@@ -132,6 +161,7 @@ private:
     bool       m_running = false;
 
     SweepQueue   m_sweeps;
+    PlotQueue    m_cycles;
     RecordQueue  m_records;
     LinkCounters m_counters;
 };

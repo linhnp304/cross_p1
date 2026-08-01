@@ -1,19 +1,38 @@
 #pragma once
 
+#include "procparams.h"
+
 #include <QString>
 #include <QVector>
 
+/// Loại dữ liệu của một dòng trong bảng cổng gửi.
+enum class TxKind {
+    Plot,    ///< điểm dấu tâm chùm (PlotTC)
+    Track,   ///< quỹ đạo
+};
+
 /// Một điểm kết nối UDP trong bảng "Kết nối".
 ///
-/// Để trống (hoặc 0.0.0.0 / cổng 0) ở phía remote nghĩa là **nhận từ bất kỳ**
-/// máy nào, cổng nào — tiện lúc thử với công cụ tạo giả dữ liệu, vì công cụ đó
-/// gửi đi từ một cổng nguồn ngẫu nhiên.
+/// Dùng chung cho cả bảng nhận và bảng gửi; mỗi bảng chỉ đọc phần trường của
+/// mình. Để trống (hoặc 0.0.0.0 / cổng 0) ở phía remote nghĩa là **nhận từ bất
+/// kỳ** máy nào, cổng nào — tiện lúc thử với công cụ tạo giả dữ liệu, vì công cụ
+/// đó gửi đi từ một cổng nguồn ngẫu nhiên.
 struct NetEndpoint {
     QString name;                                   ///< nhãn, ví dụ UDP-RAW_V
     QString localIp   = QStringLiteral("127.0.0.1");
     QString remoteIp  = QStringLiteral("127.0.0.1");
     quint16 localPort  = 0;
     quint16 remotePort = 0;
+
+    // --- chỉ dùng cho bảng gửi ---
+
+    /// Ô "Gửi". **Cố ý không lưu xuống file**: mỗi lần chạy đều bắt đầu ở trạng
+    /// thái không gửi, để mở phần mềm lên là không tự phát gói ra mạng.
+    bool   enabled = false;
+    TxKind kind    = TxKind::Plot;
+
+    /// Gửi tới địa chỉ quảng bá của dải chứa RemoteIP thay vì gửi đơn hướng.
+    bool   broadcast = false;
 
     bool acceptsAnyHost() const;
     bool acceptsAnyPort() const { return remotePort == 0; }
@@ -36,6 +55,18 @@ struct AppParams {
 
     /// Tự tính cự ly tối đa từ fs/b/tc mỗi khi tham số đổi.
     bool autoRange = false;
+
+    // --- xử lý theo rẻ quạt ---
+    /// Chỉ xử lý RAW_P trong một góc rẻ quạt. Tính theo chiều kim đồng hồ từ
+    /// góc bắt đầu tới góc kết thúc, nên "bắt đầu > kết thúc" là rẻ quạt vắt
+    /// qua hướng bắc chứ không phải nhập ngược.
+    bool   sectorOn    = false;
+    double sectorStart = 0.0;     ///< độ
+    double sectorStop  = 360.0;   ///< độ
+
+    // --- tham số hai thuật toán xử lý ---
+    BeamParams  beam;
+    TrackParams track;
 
     // --- danh sách cổng ---
     QVector<NetEndpoint> rx;   ///< cổng nhận

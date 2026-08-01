@@ -69,6 +69,32 @@ void SweepQueue::clear()
     m_queue.clear();
 }
 
+void PlotQueue::push(const rawpkt::RawPCycle &c)
+{
+    QMutexLocker lock(&m_mutex);
+    if (int(m_queue.size()) >= m_capacity) {
+        m_queue.pop_front();
+        m_dropped.fetch_add(1, std::memory_order_relaxed);
+    }
+    m_queue.push_back(c);
+}
+
+void PlotQueue::drain(QVector<rawpkt::RawPCycle> &out)
+{
+    out.clear();
+    QMutexLocker lock(&m_mutex);
+    out.reserve(int(m_queue.size()));
+    for (const rawpkt::RawPCycle &c : m_queue)
+        out.push_back(c);
+    m_queue.clear();
+}
+
+void PlotQueue::clear()
+{
+    QMutexLocker lock(&m_mutex);
+    m_queue.clear();
+}
+
 // ------------------------------------------------------------- bộ đệm 2 ----
 
 void RecordQueue::push(const QByteArray &datagram)
@@ -101,8 +127,10 @@ class UdpWorker : public QObject
     Q_OBJECT
 
 public:
-    UdpWorker(SweepQueue *sweeps, RecordQueue *records, LinkCounters *counters)
-        : m_sweeps(sweeps), m_records(records), m_counters(counters) {}
+    UdpWorker(SweepQueue *sweeps, PlotQueue *cycles, RecordQueue *records,
+              LinkCounters *counters)
+        : m_sweeps(sweeps), m_cycles(cycles), m_records(records),
+          m_counters(counters) {}
 
     /// Gọi từ luồng mạng (qua invokeMethod), trừ setZfbeat — đó chỉ là một
     /// phép ghi atomic nên gọi thẳng từ luồng nào cũng được.
@@ -125,6 +153,7 @@ private:
     void read(const Bound &b);
 
     SweepQueue   *m_sweeps;
+    PlotQueue    *m_cycles;
     RecordQueue  *m_records;
     LinkCounters *m_counters;
 
@@ -134,6 +163,7 @@ private:
     /// Cấp phát một lần rồi dùng lại: 400 lần mỗi giây mà cấp phát 1 KB trên
     /// stack cho mỗi gói thì không sao, nhưng dùng lại thì rõ ý hơn.
     rawpkt::RawVSweep m_scratch;
+    rawpkt::RawPCycle m_scratchP;
 };
 
 void UdpWorker::open(const QVector<NetEndpoint> &endpoints)
@@ -241,7 +271,9 @@ void UdpWorker::read(const Bound &b)
             m_records->push(payload);
             m_counters->rawV.fetch_add(1, std::memory_order_relaxed);
         } else if (rawpkt::isRawP(raw, len)) {
-            m_records->push(payload);   // giải mã điểm dấu ở giai đoạn sau
+            rawpkt::decodeRawP(raw, m_scratchP);
+            m_cycles->push(m_scratchP);
+            m_records->push(payload);
             m_counters->rawP.fetch_add(1, std::memory_order_relaxed);
         } else {
             m_counters->other.fetch_add(1, std::memory_order_relaxed);
@@ -257,7 +289,7 @@ UdpLink::UdpLink(QObject *parent)
     m_thread = new QThread(this);
     m_thread->setObjectName(QStringLiteral("udp-rx"));
 
-    m_worker = new UdpWorker(&m_sweeps, &m_records, &m_counters);
+    m_worker = new UdpWorker(&m_sweeps, &m_cycles, &m_records, &m_counters);
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     connect(m_worker, &UdpWorker::failed, this, &UdpLink::failed);
@@ -277,6 +309,7 @@ void UdpLink::start(const QVector<NetEndpoint> &endpoints)
         return;
 
     m_sweeps.clear();
+    m_cycles.clear();
     m_records.clear();
     m_counters.reset();
 
@@ -298,6 +331,7 @@ void UdpLink::stop()
     QMetaObject::invokeMethod(m_worker, [w = m_worker] { w->close(); },
                               Qt::BlockingQueuedConnection);
     m_sweeps.clear();
+    m_cycles.clear();
     m_records.clear();
 
     m_running = false;
@@ -318,6 +352,7 @@ LinkStats UdpLink::stats() const
     s.rawP       = m_counters.rawP.load(std::memory_order_relaxed);
     s.other      = m_counters.other.load(std::memory_order_relaxed);
     s.droppedV   = m_sweeps.dropped();
+    s.droppedP   = m_cycles.dropped();
     s.droppedRec = m_records.dropped();
     return s;
 }

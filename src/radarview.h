@@ -1,6 +1,7 @@
 #pragma once
 
 #include "appsettings.h"
+#include "plottrack.h"
 #include "tilecache.h"
 #include "vectormap.h"
 
@@ -8,9 +9,11 @@
 #include <QPointF>
 #include <QWidget>
 
+class PlotStore;
 class QSlider;
 class QTransform;
 class RadarVideo;
+class Tracker;
 
 /// Panel 1 — màn hình hiển thị chính.
 ///
@@ -34,6 +37,17 @@ public:
     /// Nguồn ảnh nền tạp. Con trỏ do nơi khác giữ, phải sống lâu hơn panel này.
     void setVideo(const RadarVideo *video);
 
+    /// Nguồn điểm dấu và quỹ đạo. Cũng là con trỏ mượn: panel vẽ 25 lần mỗi
+    /// giây, chép cả danh sách quỹ đạo kèm vết lịch sử mỗi lần vẽ là phí.
+    void setSources(const PlotStore *plots, const Tracker *tracker);
+
+    /// Bật/tắt việc vẽ cửa sổ dự đoán của bộ lọc.
+    void setDrawPredictWindow(bool on);
+
+    /// Vị trí trên panel của một toạ độ địa lý — để nơi khác đặt popup thông
+    /// tin đúng cạnh quỹ đạo.
+    QPoint geoToScreenPoint(double lat, double lng) const;
+
     /// Hẹn căn lại khung nhìn: tâm đài vào giữa, mức phóng vừa cự ly tối đa.
     /// Việc căn thực sự hoãn tới lần vẽ kế tiếp, khi widget đã có kích thước thật.
     void resetView();
@@ -41,6 +55,12 @@ public:
 signals:
     /// Phát khi con trỏ di chuyển trên panel (dùng cho thanh trạng thái).
     void cursorGeoChanged(double lat, double lng);
+
+    /// Bấm chuột trái vào một quỹ đạo — mở popup thông tin.
+    void trackClicked(quint32 id, const QPoint &globalPos);
+
+    /// Bấm chuột phải vào một quỹ đạo — mở menu cập nhật.
+    void trackContextMenu(quint32 id, const QPoint &globalPos);
 
 protected:
     void paintEvent(QPaintEvent *e) override;
@@ -92,6 +112,28 @@ private:
     /// Vệt quét hiện hành, từ tâm đài ra vòng cự ly tối đa.
     void drawSweepLine(QPainter &p) const;
 
+    // --- lớp điểm dấu và quỹ đạo ---
+    /// Vết lịch sử của mọi quỹ đạo — nằm dưới cùng trong ba lớp này.
+    void drawTrackHistory(QPainter &p) const;
+
+    /// Cửa sổ dự đoán của bộ lọc (khi được bật).
+    void drawPredictWindows(QPainter &p) const;
+
+    /// Hình tam giác quỹ đạo, quay theo hướng chuyển động.
+    void drawTracks(QPainter &p) const;
+
+    /// Ô text bám theo các quỹ đạo đang được theo dõi liên tục.
+    void drawWatchLabels(QPainter &p) const;
+
+    /// Hình vuông điểm dấu — luôn nằm trên lớp quỹ đạo.
+    void drawPlots(QPainter &p) const;
+
+    /// Màu của một quỹ đạo theo loại và tình trạng phân loại.
+    QColor trackColor(const Track &t) const;
+
+    /// Định danh quỹ đạo nằm dưới điểm `pos` trên màn hình, 0 nếu không có.
+    quint32 trackAt(const QPointF &pos) const;
+
     /// Vẽ một lớp vòng tròn. Bước tính theo đơn vị 0.1 km để so trùng bằng số
     /// nguyên (tránh sai số dấu phẩy động); skipTenthKm = 0 nghĩa là không bỏ
     /// vòng nào. Cả lớp bị bỏ qua nếu các vòng nằm quá sát nhau trên màn hình.
@@ -131,7 +173,17 @@ private:
     TileCache m_tiles;
     VectorMap m_vector;
 
-    const RadarVideo *m_video = nullptr;
+    const RadarVideo *m_video   = nullptr;
+    const PlotStore  *m_plots   = nullptr;
+    const Tracker    *m_tracker = nullptr;
+
+    bool m_drawPredictWindow = false;
+
+    /// Quỹ đạo dưới con trỏ lúc bấm chuột. Chỉ mở popup nếu lúc nhả chuột vẫn
+    /// đúng quỹ đạo đó và chuột không bị kéo đi — nếu không thì mỗi lần kéo bản
+    /// đồ mà điểm bắt đầu rơi trúng một quỹ đạo lại bật ra một popup.
+    quint32 m_pressedTrack = 0;
+    QPointF m_pressPos;
 
     // Hai lớp tĩnh dựng sẵn. m_gridCache trong suốt để nền tạp lọt xuống dưới.
     QPixmap m_mapCache;

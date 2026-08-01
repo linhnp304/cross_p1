@@ -30,6 +30,10 @@ signals:
     /// Danh sách cổng trong `p` giữ nguyên như lúc setParams.
     void paramsApplied(const AppParams &p);
 
+    /// Người dùng bấm nút mở một trong hai cửa sổ tham số thuật toán.
+    void beamParamsRequested();
+    void trackParamsRequested();
+
 private:
     /// Gom giá trị trên giao diện vào m_params rồi phát tín hiệu.
     void apply();
@@ -55,4 +59,8 @@ private:
     QCheckBox   *m_autoRange  = nullptr;
     QPushButton *m_apply      = nullptr;
     QLabel      *m_rmax       = nullptr;
+
+    QCheckBox      *m_sectorOn    = nullptr;
+    QDoubleSpinBox *m_sectorStart = nullptr;
+    QDoubleSpinBox *m_sectorStop  = nullptr;
 };

@@ -36,6 +36,10 @@ signals:
     /// áp dụng bên tab "Tham số".
     void endpointsChanged(const QVector<NetEndpoint> &rx);
 
+    /// Danh sách cổng gửi vừa đổi. Phát cả khi chỉ bật/tắt ô "Gửi" — nơi nhận
+    /// mở lại socket theo danh sách mới.
+    void txEndpointsChanged(const QVector<NetEndpoint> &tx);
+
     /// Người dùng bấm nút Kết nối / Dừng kết nối.
     void connectRequested();
     void disconnectRequested();
@@ -51,6 +55,16 @@ private:
 
     void onCellChanged();
 
+    // --- bảng cổng gửi ---
+    void rebuildTxTable();
+    void addTxRow();
+    void removeSelectedTxRow();
+    bool readTxTable();
+    void onTxCellChanged();
+
+    /// Dựng các widget trong ô của một dòng gửi (hai ô đánh dấu và ComboBox).
+    void fillTxWidgets(int row, const NetEndpoint &e);
+
     AppParams m_params;
     bool      m_loading = false;
     bool      m_running = false;
@@ -60,4 +74,8 @@ private:
     QPushButton  *m_remove = nullptr;
     QPushButton  *m_toggle = nullptr;
     QLabel       *m_status = nullptr;
+
+    QTableWidget *m_tx       = nullptr;
+    QPushButton  *m_txAdd    = nullptr;
+    QPushButton  *m_txRemove = nullptr;
 };

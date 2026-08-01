@@ -26,6 +26,8 @@ qt_standard_project_setup()
 
 qt_add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/appcolors.cpp
+    src/appcolors.h
     src/appinfo.h
     src/appparams.cpp
     src/appparams.h
@@ -33,6 +35,12 @@ qt_add_executable(${PROJECT_NAME}
     src/appsettings.h
     src/ascope.cpp
     src/ascope.h
+    src/beamcenter.cpp
+    src/beamcenter.h
+    src/beamparamsdialog.cpp
+    src/beamparamsdialog.h
+    src/colorstab.cpp
+    src/colorstab.h
     src/connectiontab.cpp
     src/connectiontab.h
     src/geo.h
@@ -40,10 +48,16 @@ qt_add_executable(${PROJECT_NAME}
     src/lanstatus.h
     src/mainwindow.cpp
     src/mainwindow.h
+    src/packetio.h
     src/paramstab.cpp
     src/paramstab.h
+    src/plotlistwindow.cpp
+    src/plotlistwindow.h
+    src/plotstore.h
+    src/plottrack.h
     src/prjprojection.cpp
     src/prjprojection.h
+    src/procparams.h
     src/radarvideo.cpp
     src/radarvideo.h
     src/radarview.cpp
@@ -56,8 +70,18 @@ qt_add_executable(${PROJECT_NAME}
     src/theme.h
     src/tilecache.cpp
     src/tilecache.h
+    src/trackinfopopup.cpp
+    src/trackinfopopup.h
+    src/tracklisttab.cpp
+    src/tracklisttab.h
+    src/trackparamsdialog.cpp
+    src/trackparamsdialog.h
+    src/tracker.cpp
+    src/tracker.h
     src/udplink.cpp
     src/udplink.h
+    src/udpsender.cpp
+    src/udpsender.h
     src/vectormap.cpp
     src/vectormap.h
 )

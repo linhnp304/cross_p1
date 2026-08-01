@@ -1,8 +1,11 @@
 #include "radarview.h"
 
 #include "geo.h"
+#include "plotstore.h"
 #include "radarvideo.h"
+#include "tracker.h"
 
+#include <QFontMetricsF>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -36,6 +39,63 @@ QPen gridPen(int alpha, double width)
                     alpha));
     pen.setWidthF(width);
     return pen;
+}
+
+// --- kích thước các hình điểm dấu / quỹ đạo ---
+//
+// Đo bằng điểm ảnh màn hình, **không** theo mức phóng: hình quỹ đạo là ký hiệu
+// để nhận ra mục tiêu chứ không phải hình vẽ theo tỉ lệ, phóng to bản đồ mà ký
+// hiệu cũng to lên thì chỉ tổ che mất bản đồ.
+
+/// Cạnh bên của hình tam giác cân biểu diễn quỹ đạo.
+///
+/// Tỉ lệ đáy/cạnh bên đã quy định là 35% nên hình vốn dĩ thon và nhọn; để cạnh
+/// bên ngắn quá thì trên màn hình chỉ còn là một vệt, không nhìn ra hướng.
+constexpr double kTrackLegPx = 18.0;
+
+/// Cạnh đáy bằng ~35% cạnh bên, theo mô tả giai đoạn.
+constexpr double kTrackBaseRatio = 0.35;
+
+/// Điểm dấu là hình vuông cạnh ~40% kích thước quỹ đạo.
+constexpr double kPlotSizePx = kTrackLegPx * 0.40;
+
+/// Vết lịch sử là hình tròn đường kính ~30% kích thước quỹ đạo.
+constexpr double kHistoryDiameterPx = kTrackLegPx * 0.30;
+
+/// Bán kính vùng bấm trúng một quỹ đạo.
+constexpr double kTrackHitPx = 11.0;
+
+/// Kéo chuột quá ngần này điểm ảnh thì coi là kéo bản đồ, không phải bấm chọn.
+constexpr double kClickSlopPx = 4.0;
+
+/// Hình tam giác cân của quỹ đạo, đỉnh quay theo hướng chuyển động.
+QPolygonF trackShape(const QPointF &c, double headingDeg)
+{
+    const double base = kTrackLegPx * kTrackBaseRatio;
+    const double half = base / 2.0;
+    // Chiều cao suy từ cạnh bên và nửa cạnh đáy — giữ đúng tỉ lệ đã quy định
+    // thay vì chọn bừa một chiều cao.
+    const double h = std::sqrt(std::max(1.0, kTrackLegPx * kTrackLegPx - half * half));
+
+    // Trong hệ "bắc hướng lên": đỉnh ở trên, đáy ở dưới, trọng tâm ở gốc.
+    const QPointF pts[3] = {
+        QPointF(0.0,  -h * 0.6),
+        QPointF(-half, h * 0.4),
+        QPointF( half, h * 0.4),
+    };
+
+    const double a = headingDeg * geo::kDeg2Rad;
+    const double s = std::sin(a), k = std::cos(a);
+
+    QPolygonF poly;
+    poly.reserve(3);
+    for (const QPointF &p : pts) {
+        // Quay theo phương vị (từ hướng bắc, chiều kim đồng hồ) trong hệ toạ
+        // độ màn hình có trục y hướng xuống.
+        poly << QPointF(c.x() + p.x() * k - p.y() * s,
+                        c.y() + p.x() * s + p.y() * k);
+    }
+    return poly;
 }
 
 } // namespace
@@ -102,6 +162,24 @@ void RadarView::setVideo(const RadarVideo *video)
 {
     m_video = video;
     update();
+}
+
+void RadarView::setSources(const PlotStore *plots, const Tracker *tracker)
+{
+    m_plots   = plots;
+    m_tracker = tracker;
+    update();
+}
+
+void RadarView::setDrawPredictWindow(bool on)
+{
+    m_drawPredictWindow = on;
+    update();
+}
+
+QPoint RadarView::geoToScreenPoint(double lat, double lng) const
+{
+    return geoToScreen(lat, lng).toPoint();
 }
 
 void RadarView::resetView()
@@ -207,6 +285,19 @@ void RadarView::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::Antialiasing, true);
     drawSweepLine(p);
     drawSiteMarker(p);
+
+    // Thứ tự lớp cố định: vết lịch sử dưới cùng, rồi cửa sổ dự đoán, rồi quỹ
+    // đạo, rồi ô text theo dõi, trên cùng là điểm dấu. Điểm dấu là dữ liệu thô
+    // của lần quét vừa rồi, không được để quỹ đạo (kết quả suy ra) che mất.
+    if (m_settings.showTracks) {
+        drawTrackHistory(p);
+        if (m_drawPredictWindow)
+            drawPredictWindows(p);
+        drawTracks(p);
+        drawWatchLabels(p);
+    }
+    if (m_settings.showPlots)
+        drawPlots(p);
 }
 
 void RadarView::rebuildCaches()
@@ -427,16 +518,8 @@ void RadarView::drawMaxRangeRing(QPainter &p) const
     p.setPen(gridPen(200, 1.8));
     p.drawPolyline(poly);
 
-    // Nhãn đặt ở phía tây chứ không phía bắc: các nhãn cự ly 5 km đều xếp dọc
-    // tia bắc, cự ly tối đa mà gần một bội của 5 km là hai nhãn chồng lên nhau.
-    double lat = 0.0, lng = 0.0;
-    geo::destination(m_settings.siteLat, m_settings.siteLng, 270.0, r, lat, lng);
-    const QPointF at = geoToScreen(lat, lng);
-
-    p.setPen(kTextColor);
-    p.drawText(QRectF(at.x() + 8, at.y() - 8, 80, 16),
-               Qt::AlignLeft | Qt::AlignVCenter,
-               QStringLiteral("%1 km").arg(r, 0, 'g', 6));
+    // Không ghi nhãn cự ly ở vòng ngoài cùng: nó luôn rơi vào chỗ có đường chia
+    // độ đi qua, và giá trị đó đã có sẵn trong ô "Cự ly tối đa" của tab Cài đặt.
 }
 
 void RadarView::drawAzimuthLines(QPainter &p) const
@@ -541,6 +624,246 @@ void RadarView::drawSweepLine(QPainter &p) const
                geoToScreen(lat, lng));
 }
 
+// --------------------------------------------- điểm dấu và quỹ đạo --------
+
+QColor RadarView::trackColor(const Track &t) const
+{
+    const AppColors &c = m_settings.colors;
+    if (t.type == TrackType::RadarIff)
+        return c.trackIff;
+    return t.classify != 0 ? c.trackClassified : c.trackPlain;
+}
+
+void RadarView::drawTrackHistory(QPainter &p) const
+{
+    if (!m_tracker)
+        return;
+
+    const AppColors &col = m_settings.colors;
+    const double r = kHistoryDiameterPx / 2.0;
+
+    p.setPen(Qt::NoPen);
+    for (const Track &t : m_tracker->tracks()) {
+        // Quỹ đạo đang được theo dõi liên tục thì hiện đủ vết, kể cả khi thanh
+        // trượt đang để ít vết hoặc để 0 — đó là điểm khác nhau giữa "theo dõi"
+        // và "nhìn qua".
+        const int want = t.watched ? t.history.size() : m_settings.trackHistory;
+        const int from = qMax(0, t.history.size() - want);
+
+        for (int i = from; i < t.history.size(); ++i) {
+            const TrackPoint &h = t.history.at(i);
+            switch (h.status) {
+            case TrackStatus::Tracking:  p.setBrush(col.historyTracking); break;
+            case TrackStatus::Coasting:  p.setBrush(col.historyCoasting); break;
+            default:                     p.setBrush(col.historyOther);    break;
+            }
+            p.drawEllipse(geoToScreen(h.lat, h.lng), r, r);
+        }
+    }
+    p.setBrush(Qt::NoBrush);
+}
+
+void RadarView::drawPredictWindows(QPainter &p) const
+{
+    if (!m_tracker)
+        return;
+
+    QPen pen(m_settings.colors.predictWindow, 1.0, Qt::DashLine);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    for (const Track &t : m_tracker->tracks()) {
+        const double r1 = t.windowRange1 * 0.0001;   // 0.1 m -> km
+        const double r2 = t.windowRange2 * 0.0001;
+        const double a1 = t.windowAzm1 * 0.01;
+        double a2 = t.windowAzm2 * 0.01;
+        if (a2 < a1)
+            a2 += 360.0;   // cửa sổ vắt qua hướng bắc
+
+        // Vẽ hình quạt bằng đường gấp khúc theo chính phép chiếu đang dùng —
+        // vẽ cung tròn trên màn hình sẽ lệch khỏi lưới cự ly vì Mercator.
+        constexpr int kSteps = 12;
+        QPolygonF poly;
+        poly.reserve(2 * (kSteps + 1) + 1);
+        for (int i = 0; i <= kSteps; ++i) {
+            double lat = 0.0, lng = 0.0;
+            geo::destination(m_settings.siteLat, m_settings.siteLng,
+                             a1 + (a2 - a1) * i / kSteps, r2, lat, lng);
+            poly << geoToScreen(lat, lng);
+        }
+        for (int i = kSteps; i >= 0; --i) {
+            double lat = 0.0, lng = 0.0;
+            geo::destination(m_settings.siteLat, m_settings.siteLng,
+                             a1 + (a2 - a1) * i / kSteps, r1, lat, lng);
+            poly << geoToScreen(lat, lng);
+        }
+        poly << poly.first();
+        p.drawPolyline(poly);
+    }
+}
+
+void RadarView::drawTracks(QPainter &p) const
+{
+    if (!m_tracker)
+        return;
+
+    const QFontMetricsF fm(p.font());
+
+    for (const Track &t : m_tracker->tracks()) {
+        const QPointF c = geoToScreen(t.lat, t.lng);
+        const QColor  k = trackColor(t);
+
+        p.setPen(QPen(k, 1.4));
+        // Quỹ đạo đang ngoại suy để rỗng ruột: nhìn là biết ngay vị trí này do
+        // thuật toán đoán chứ không phải vừa đo được.
+        p.setBrush(t.status == TrackStatus::Coasting ? QBrush(Qt::NoBrush) : QBrush(k));
+        p.drawPolygon(trackShape(c, t.headingDeg()));
+
+        if (!m_settings.showTrackInfo)
+            continue;
+
+        p.setPen(k);
+
+        // Số đầu tốp phía trên hình, phương vị - cự ly bên phải. Điểm dấu và
+        // quỹ đạo của cùng một mục tiêu gần như trùng vị trí, nên thông tin của
+        // hai lớp phải nằm về hai phía khác nhau mới không chồng chữ lên nhau.
+        p.drawText(QPointF(c.x() + kTrackLegPx * 0.45, c.y() - kTrackLegPx * 0.55),
+                   QString::number(t.top));
+
+        p.drawText(QPointF(c.x() + kTrackLegPx * 0.7,
+                           c.y() + fm.ascent() / 2.0 - 1.0),
+                   QStringLiteral("%1-%2").arg(t.azmDeg(), 0, 'f', 2)
+                                          .arg(t.rangeM(), 0, 'f', 1));
+    }
+    p.setBrush(Qt::NoBrush);
+}
+
+void RadarView::drawWatchLabels(QPainter &p) const
+{
+    if (!m_tracker)
+        return;
+
+    const AppColors &col = m_settings.colors;
+    const QFontMetricsF fm(p.font());
+    const double lineH = fm.height();
+
+    for (const Track &t : m_tracker->tracks()) {
+        if (!t.watched)
+            continue;
+
+        QStringList lines;
+        lines << tr("Tốp: %1").arg(t.top)
+              << tr("VT: %1° - %2 m").arg(t.azmDeg(), 0, 'f', 2)
+                                      .arg(t.rangeM(), 0, 'f', 1)
+              << tr("V: %1 m/s").arg(t.speedMs(), 0, 'f', 1)
+              << tr("H: %1°").arg(t.headingDeg(), 0, 'f', 2);
+        if (t.altitude() != 0)
+            lines << tr("ĐC: %1 m").arg(t.altitude());
+        if (const QString name = m_settings.classifyName(t.classify); !name.isEmpty())
+            lines << tr("Loại: %1").arg(name);
+        lines << tr("NL: %1").arg(t.amplitude);
+
+        double w = 0.0;
+        for (const QString &s : lines)
+            w = qMax(w, fm.horizontalAdvance(s));
+
+        constexpr double kPad = 5.0;
+        const QSizeF box(w + 2 * kPad, lines.size() * lineH + 2 * kPad);
+
+        // Đặt ngược hướng chuyển động: phía trước quỹ đạo là chỗ trắc thủ đang
+        // nhìn tới, không nên che.
+        //
+        // Khoảng đẩy ra phải tính theo cỡ ô text, không phải một hằng số: ô
+        // text cao cả trăm điểm ảnh mà chỉ đẩy ra vài chục thì tâm ô nằm ngoài
+        // quỹ đạo nhưng thân ô vẫn phủ kín cả quỹ đạo lẫn vết của nó.
+        const double a  = (t.headingDeg() + 180.0) * geo::kDeg2Rad;
+        const double dx = std::sin(a);
+        const double dy = -std::cos(a);
+        const double reach = kTrackLegPx
+                           + std::abs(dx) * box.width() / 2.0
+                           + std::abs(dy) * box.height() / 2.0;
+
+        const QPointF c = geoToScreen(t.lat, t.lng);
+        const QPointF anchor(c.x() + dx * reach, c.y() + dy * reach);
+
+        QRectF rect(anchor.x() - box.width() / 2.0, anchor.y() - box.height() / 2.0,
+                    box.width(), box.height());
+        // Giữ ô text trong khung nhìn: quỹ đạo sát mép mà ô text tràn ra ngoài
+        // thì mất đúng thông tin đang cần theo dõi.
+        rect.moveLeft(qBound(2.0, rect.left(), width() - box.width() - 2.0));
+        rect.moveTop(qBound(2.0, rect.top(), height() - box.height() - 2.0));
+
+        // Mũi tên nối từ ô text trỏ vào quỹ đạo.
+        p.setPen(QPen(col.labelBorder, 1.0));
+        p.drawLine(rect.center(), c);
+
+        p.setBrush(col.labelBackground);
+        p.drawRoundedRect(rect, 3.0, 3.0);
+        p.setBrush(Qt::NoBrush);
+
+        p.setPen(col.labelText);
+        for (int i = 0; i < lines.size(); ++i) {
+            p.drawText(QPointF(rect.left() + kPad,
+                               rect.top() + kPad + fm.ascent() + i * lineH),
+                       lines.at(i));
+        }
+    }
+}
+
+void RadarView::drawPlots(QPainter &p) const
+{
+    if (!m_plots)
+        return;
+
+    const QFontMetricsF fm(p.font());
+    const QColor k = m_settings.colors.plotRadar;
+    const double h = kPlotSizePx / 2.0;
+
+    p.setPen(Qt::NoPen);
+    p.setBrush(k);
+    for (const PlotTC &plot : m_plots->plots()) {
+        const QPointF c = geoToScreen(plot.lat, plot.lng);
+        p.drawRect(QRectF(c.x() - h, c.y() - h, kPlotSizePx, kPlotSizePx));
+    }
+    p.setBrush(Qt::NoBrush);
+
+    if (!m_settings.showPlotInfo)
+        return;
+
+    // Thông tin điểm dấu đặt **bên trái** hình vuông, vì thông tin quỹ đạo đã
+    // chiếm phía trên và bên phải. Điểm dấu và quỹ đạo của cùng một mục tiêu
+    // gần như trùng vị trí, để cùng một phía là hai dòng chữ đè lên nhau.
+    p.setPen(k);
+    for (const PlotTC &plot : m_plots->plots()) {
+        const QPointF c = geoToScreen(plot.lat, plot.lng);
+        const QString text = QStringLiteral("%1° - %2 m")
+                                 .arg(plot.azmDeg(), 0, 'f', 2)
+                                 .arg(plot.rangeM(), 0, 'f', 1);
+        p.drawText(QPointF(c.x() - h - 3.0 - fm.horizontalAdvance(text),
+                           c.y() + fm.ascent() / 2.0 - 1.0),
+                   text);
+    }
+}
+
+quint32 RadarView::trackAt(const QPointF &pos) const
+{
+    if (!m_tracker || !m_settings.showTracks)
+        return 0;
+
+    quint32 best = 0;
+    double  bestDist = kTrackHitPx;
+
+    for (const Track &t : m_tracker->tracks()) {
+        const QPointF c = geoToScreen(t.lat, t.lng);
+        const double d = std::hypot(c.x() - pos.x(), c.y() - pos.y());
+        if (d <= bestDist) {
+            bestDist = d;
+            best     = t.id;
+        }
+    }
+    return best;
+}
+
 // ------------------------------------------------------------ tương tác ----
 
 void RadarView::resizeEvent(QResizeEvent *e)
@@ -562,16 +885,40 @@ void RadarView::layoutZoomSlider()
 
 void RadarView::mousePressEvent(QMouseEvent *e)
 {
+    if (e->button() == Qt::RightButton) {
+        // Chuột phải trên một quỹ đạo mở menu cập nhật; ra ngoài quỹ đạo thì
+        // không làm gì (panel này chưa có menu ngữ cảnh nào khác).
+        if (const quint32 id = trackAt(e->position()); id != 0) {
+            emit trackContextMenu(id, e->globalPosition().toPoint());
+            e->accept();
+            return;
+        }
+    }
+
     if (e->button() == Qt::LeftButton) {
-        m_dragging = true;
-        m_dragLastPos = e->position();
-        setCursor(Qt::ClosedHandCursor);
+        m_pressedTrack = trackAt(e->position());
+        m_pressPos     = e->position();
+        m_dragging     = true;
+        m_dragLastPos  = e->position();
+        // Bấm trúng quỹ đạo thì chưa đổi con trỏ: có thể người dùng chỉ định
+        // mở popup chứ không định kéo bản đồ.
+        if (m_pressedTrack == 0)
+            setCursor(Qt::ClosedHandCursor);
     }
     QWidget::mousePressEvent(e);
 }
 
 void RadarView::mouseMoveEvent(QMouseEvent *e)
 {
+    // Kéo đủ xa thì bỏ ý định mở popup, coi như đang kéo bản đồ.
+    if (m_pressedTrack != 0) {
+        const QPointF d = e->position() - m_pressPos;
+        if (std::hypot(d.x(), d.y()) > kClickSlopPx) {
+            m_pressedTrack = 0;
+            setCursor(Qt::ClosedHandCursor);
+        }
+    }
+
     if (m_dragging) {
         const double scale = kTileSize * std::pow(2.0, m_zoom);
         const QPointF delta = e->position() - m_dragLastPos;
@@ -594,6 +941,11 @@ void RadarView::mouseReleaseEvent(QMouseEvent *e)
     if (e->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         setCursor(Qt::CrossCursor);
+
+        // Vẫn đúng quỹ đạo lúc bấm và chuột không bị kéo đi — mở popup.
+        if (m_pressedTrack != 0 && trackAt(e->position()) == m_pressedTrack)
+            emit trackClicked(m_pressedTrack, e->globalPosition().toPoint());
+        m_pressedTrack = 0;
     }
     QWidget::mouseReleaseEvent(e);
 }

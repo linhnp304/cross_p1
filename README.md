@@ -23,8 +23,8 @@ Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần 
 
 | File | Chứa gì | Của ai |
 |---|---|---|
-| `mx01.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video | Trắc thủ |
-| `params.json` | Tham số kỹ thuật (Fs, B, Tc, ZFbeat) và danh sách cổng UDP | Người lắp đặt |
+| `mx01.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video, màu các đối tượng đồ hoạ, danh sách phân loại mục tiêu | Trắc thủ |
+| `params.json` | Tham số kỹ thuật (Fs, B, Tc, ZFbeat), rẻ quạt xử lý, tham số hai thuật toán xử lý, và danh sách cổng UDP | Người lắp đặt |
 
 Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
 
@@ -97,7 +97,8 @@ Tab **Kết nối** liệt kê các cổng UDP nhận dữ liệu. Mặc định
   mọi cổng**. Đây là mặc định, vì bên gửi thường dùng cổng nguồn ngẫu nhiên.
 - Cột **Tên** chỉ là nhãn cho người đọc. Gói tin được phân loại theo header của
   chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
-- Bảng chỉ sửa được lúc đã dừng kết nối.
+- Bảng cổng **nhận** chỉ sửa được lúc đã dừng kết nối. Bảng cổng **gửi** thì sửa
+  được bất cứ lúc nào — xem [Gửi dữ liệu đi hệ thống khác](#gửi-dữ-liệu-đi-hệ-thống-khác).
 
 Dữ liệu `RAW_V` (1024 điểm biên độ mỗi gói, ~400 gói/giây) hiện ở hai nơi: nền
 tạp trên bản đồ (panel 1) và đường biên độ trên cửa sổ biên độ (panel 2.2).
@@ -128,17 +129,174 @@ Với giá trị mặc định Fs=1, B=154, Tc=2500 thì Rmax = 1217.53 m → **
 - Bật **Tự động nhận từ trạng thái lệnh điều khiển** → nút *Áp dụng* bị khoá
   (mọi thay đổi vào thẳng) và ô tự cập nhật thang cự ly bị bật cố định.
 
+Hai nút ở cuối tab mở hai cửa sổ tham số của phần xử lý — xem
+[Điểm dấu và quỹ đạo](#điểm-dấu-và-quỹ-đạo).
+
+**Xử lý theo rẻ quạt** giới hạn phần dữ liệu `RAW_P` được đưa vào xử lý. Góc
+tính theo chiều kim đồng hồ từ góc bắt đầu tới góc kết thúc, nên *bắt đầu > kết
+thúc* là rẻ quạt vắt qua hướng bắc chứ không phải nhập ngược. Có hiệu lực ngay,
+không cần bấm *Áp dụng* (nút đó thuộc về nhóm thang cự ly).
+
 ### Công cụ tạo giả dữ liệu
 
-Không có đài thật vẫn thử được toàn bộ đường nhận và hiển thị:
+Không có đài thật vẫn thử được toàn bộ đường nhận, xử lý và hiển thị.
+
+```bash
+python3 tools/fake_radar.py
+```
+
+Phát **cả `RAW_V` và `RAW_P`** (cổng 6001 và 6002) từ **cùng một nguồn phương
+vị** — điều kiện bắt buộc để thuật toán tâm chùm và bộ bám quỹ đạo chạy đúng.
+Nhịp 2.5 ms, 6 vòng/phút, ba mục tiêu: bay vòng tròn ~2 m/s, bay thẳng từ tâm
+đài ra ~5.5 m/s, và bay xuyên tâm đài ~15.5 m/s. Xem `--help` để đổi cổng, tốc
+độ vòng quét hay tỉ lệ mất xung.
+
+Chỉ cần nền tạp thì vẫn dùng công cụ cũ:
 
 ```bash
 python3 tools/fake_raw_v.py
 ```
 
-Gửi `RAW_V` tới `127.0.0.1:6001`, nhịp 2.5 ms, phương vị chạy đúng 6 vòng/phút,
-nền tạp ngẫu nhiên 10000–15000. Thêm `--targets 6` để có vài mục tiêu giả cho
-dễ nhìn ra thang cự ly. Xem `--help` để đổi cổng hoặc tốc độ vòng quét.
+> Chỉ chạy **một** công cụ tạo giả tại một thời điểm. Hai nguồn cùng phát vào
+> một cổng thì phương vị của chúng lệch pha nhau, phần mềm sẽ tưởng ăng-ten quay
+> hết vòng liên tục và không quỹ đạo nào hình thành được.
+
+## Điểm dấu và quỹ đạo
+
+Dữ liệu `RAW_P` mang các điểm dấu đơn xung. Đường xử lý gồm hai bước:
+
+1. **Tâm chùm xung** — gom các xung liên tiếp ở gần cùng một ô cự ly và cùng mức
+   dopler thành một "chùm", rồi lấy tâm chùm làm **điểm dấu** (PlotTC). Ô cự ly
+   quy ra mét theo đúng công thức của cự ly tối đa: **R = Rmax·n/1024**.
+2. **Bám quỹ đạo** — bộ lọc Kalman vận tốc không đổi trong hệ Đề-các cục bộ
+   quanh tâm đài. Mỗi vòng quay ăng-ten là một nhịp: điểm dấu tới thì ghép vào
+   quỹ đạo đang có, hết vòng thì quỹ đạo nào không được ghép sẽ ngoại suy, ngoại
+   suy quá số vòng cho phép thì xoá.
+
+Hình vẽ trên panel 1:
+
+| Đối tượng | Hình | Ghi chú |
+| --- | --- | --- |
+| Điểm dấu | hình vuông nhỏ | luôn nằm **trên** lớp quỹ đạo; tự xoá sau 8 giây |
+| Quỹ đạo | tam giác cân, quay theo hướng chuyển động | để rỗng ruột khi đang ngoại suy |
+| Vết lịch sử | hình tròn nhỏ, mỗi vòng quét một vết | xanh biển = đang bám, đỏ = ngoại suy, cam = còn lại |
+
+Hai ô **Hiện thông tin** trong tab Cài đặt bật thêm chữ cạnh hình. Ba nhãn nằm
+ba phía khác nhau vì điểm dấu và quỹ đạo của cùng một mục tiêu gần như trùng vị
+trí — cùng một phía là chữ đè lên chữ:
+
+- **Quỹ đạo** — số đầu tốp phía trên, phương vị-cự ly bên phải (chỉ số, làm tròn
+  0.01° và 0.1 m).
+- **Điểm dấu** — phương vị-cự ly bên trái.
+
+Màu của mọi đối tượng đổi được trong tab **Màu sắc**; ẩn/hiện và độ dài vết
+chỉnh trong tab **Cài đặt**, nhóm *Điểm dấu và quỹ đạo*.
+
+### Thao tác với quỹ đạo
+
+- **Chuột trái** vào một quỹ đạo → popup thông tin nhanh; bấm ra ngoài thì đóng.
+- **Chuột phải** vào một quỹ đạo → menu đổi đầu tốp, nhập độ cao, nhận dạng, xoá.
+- Tab **Danh sách** có đủ các cột đó dưới dạng bảng, kèm ô **Theo dõi**. Quỹ đạo
+  được theo dõi hiện thêm ô text bám cạnh nó trên bản đồ và luôn hiện **đủ** vết
+  lịch sử, kể cả khi thanh trượt đang để ít vết.
+- Kích đúp vào cột **VT / V / H** trong bảng cũng mở popup thông tin. Ba cột kia
+  sửa được tại chỗ nên kích đúp ở đó là mở ô nhập.
+- Nút **Danh sách điểm dấu** mở cửa sổ theo dõi từng điểm dấu sinh ra.
+
+Danh sách tên phân loại mục tiêu nằm trong `mx01.json`, khoá `classifyNames` —
+sửa thẳng trong file, chưa có giao diện quản lý.
+
+### Tham số hai thuật toán
+
+Hai nút ở cuối tab **Tham số** mở hai cửa sổ chỉnh được lúc đang chạy; giá trị
+lưu vào `params.json`.
+
+- **Tham số chùm xung** — tiêu chuẩn độ dài chùm, dopler, xét duyệt xung vào
+  chùm, số chu kỳ mở/đóng chùm, phương án tính tâm (đơn giản hay có trọng số
+  biên độ), và số giây giữ điểm dấu trên màn hình.
+- **Tham số quỹ đạo** — tiêu chuẩn khởi tạo (2/2, 3/3, 2/3 vòng), số vòng ngoại
+  suy, dải vận tốc quan tâm, cửa sổ liên kết, sai số đo và nhiễu quá trình, thời
+  gian tự xoá khi không cập nhật, và ô bật vẽ cửa sổ dự đoán.
+
+Một quỹ đạo bị xoá khi rơi vào **một trong bốn** điều kiện: quá số vòng ngoại
+suy, ra khỏi vùng phủ của đài, vận tốc ra ngoài dải cho phép hai vòng liên tiếp,
+hoặc quá **40 giây** (mặc định) không có điểm dấu nào ghép vào. Điều kiện thời
+gian là cái chốt cuối: ăng-ten quay chậm lại hay ngừng quay thì số vòng ngoại
+suy đếm mãi không tới ngưỡng.
+
+> Hai tham số **số vòng ngoại suy** và **thời gian tự xoá** phải thoả
+> `thời gian tự xoá > số vòng ngoại suy × chu kỳ vòng quét`. Ở 6 vòng/phút thì
+> 3 × 10 = 30 giây < 40 giây, đúng. Nếu đài quay chậm hơn (4 vòng/phút → 45
+> giây) thì ô 40 giây bắn trước và số vòng ngoại suy thành vô nghĩa.
+
+Ba chỗ đáng chú ý khi chỉnh:
+
+- **Gia tốc mục tiêu** là tham số nhạy nhất cả bộ: nó vào ma trận nhiễu theo
+  `dt⁴`, mà `dt` là cả một vòng quay ăng-ten. Nó cũng là thứ quyết định bề rộng
+  cửa sổ liên kết. Với chu kỳ 10 giây, đo được: 0.3 m/s² → cửa sổ 94 m,
+  1 m/s² → 165 m, 3 m/s² → 366 m. Rộng thì bám dai qua chỗ mục tiêu ngoặt,
+  nhưng dễ bắt nhầm sang mục tiêu bên cạnh.
+- **Dải vận tốc** là cái van chính để lọc quỹ đạo rác. Xét cả lúc khởi tạo lẫn
+  trong suốt quá trình bám: quỹ đạo có vận tốc ra ngoài dải hai vòng liên tiếp
+  thì bị xoá.
+- **Cửa sổ cự ly tối đa** chặn trần cửa sổ liên kết, dùng cho cả vòng quét đầu
+  tiên khi chưa biết vận tốc. Với đài tầm gần, tích *vận tốc lớn nhất × chu kỳ
+  vòng quét* có thể vượt cả cự ly tối đa; không có trần này thì cửa sổ ôm trọn
+  màn hình và mọi điểm dấu đều rơi vào quỹ đạo đầu tiên gặp được.
+
+Ô **cửa sổ phương vị cơ sở** không tham gia việc ghép điểm dấu — cửa sổ liên kết
+xét theo khoảng cách, vì xét riêng theo phương vị thì ở gần tâm đài cùng một
+khoảng cách lại thành một góc rất lớn. Ô đó chỉ nới thêm hình cửa sổ dự đoán vẽ
+trên màn hình và các trường window trong gói tin Track.
+
+### Hai chốt an toàn chỉ có trong params.json
+
+Không đưa lên giao diện vì đặt xong là quên, không phải thứ chỉnh trong lúc
+chiến đấu. Sửa trong `params.json`, mục `track`:
+
+| Khoá | Mặc định | Tác dụng |
+|---|---|---|
+| `maxTracks` | 200 | Trần số quỹ đạo. Gặp nhiễu dày thì danh sách phình vô hạn, mà mỗi điểm dấu phải quét qua toàn bộ danh sách — càng phình càng chậm, càng chậm càng phình |
+| `minInitRangeM` | 50 | Cự ly nhỏ nhất cho phép **khởi tạo** quỹ đạo mới. Quanh tâm đài là chỗ địa vật mạnh nhất |
+
+Cả hai chỉ chặn việc khởi tạo, không đụng tới quỹ đạo đã có: mục tiêu đang bám
+mà bay qua vùng chết quanh tâm đài thì vẫn được cập nhật bình thường.
+
+## Gửi dữ liệu đi hệ thống khác
+
+Mỗi khi có điểm dấu mới hoặc một quỹ đạo được cập nhật, gói tin tương ứng được
+gửi tới mọi dòng trong bảng **Cổng UDP gửi dữ liệu** (tab Kết nối) đang bật ô
+*Gửi* và đúng loại dữ liệu. Bảng mặc định rỗng.
+
+| Cột | Ý nghĩa |
+|---|---|
+| Gửi | Bật/tắt dòng đó. **Luôn bắt đầu ở trạng thái tắt mỗi lần chạy** — mở phần mềm lên mà tự phát gói ra mạng là chuyện không ai muốn |
+| Loại dữ liệu | `Plot` (điểm dấu tâm chùm) hoặc `Track` (quỹ đạo) |
+| LocalIP | Card mạng **đi ra**. Để trống là theo bảng định tuyến của hệ điều hành. Chú ý: khác hẳn ý nghĩa của cột cùng tên bên bảng nhận |
+| LocalPort | Để `0` là để hệ điều hành tự chọn cổng nguồn |
+| RemoteIP / RemotePort | Đích đến. Dòng đã bật *Gửi* thì hai ô này bắt buộc có giá trị |
+| Broadcast | Gửi tới địa chỉ quảng bá của dải chứa RemoteIP (ví dụ `192.168.0.110` → `192.168.0.255`) thay vì gửi thẳng cho một máy |
+
+Địa chỉ quảng bá tra từ chính card mạng của máy chứ không thay số cuối bằng 255
+— cách kia chỉ đúng với dải `/24`. Bật *Broadcast* mà không card nào của máy
+cùng dải với RemoteIP thì dòng đó báo lỗi chứ không âm thầm gửi đơn hướng.
+
+Bảng này sửa được cả lúc đang kết nối (khác bảng cổng nhận): mọi thay đổi mở
+lại socket ngay. Địa chỉ trong bảng cũng vào danh sách kiểm tra thông mạng ở
+góc trái thanh trạng thái.
+
+Quỹ đạo bị xoá được gửi kèm `track_status = 6`, dù xoá bằng tay hay bằng thuật
+toán — hệ thống nhận không biết thì nó giữ quỹ đạo đó trên màn hình vĩnh viễn.
+
+### Kiểm tra phía gửi
+
+```bash
+python3 tools/recv_plot_track.py
+```
+
+Đóng vai hệ thống nhận: mở cổng 6101 và 6102, giải mã theo đúng bảng mô tả giao
+thức rồi in ra, kèm kiểm tra Header và Length. Thêm `--raw` để in đủ từng
+trường, `--port` để đổi cổng. Nghe trên `0.0.0.0` nên nhận được cả gói quảng bá.
 
 ## Nền bản đồ số
 

@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
@@ -100,6 +101,26 @@ QString resolveDataDir(const QString &want, bool (*looksRight)(const QString &))
 
 } // namespace
 
+QStringList AppSettings::defaultClassifyNames()
+{
+    // Danh sách mẫu theo mô tả giai đoạn. Người dùng sửa thẳng trong file cấu
+    // hình; thứ tự trong danh sách chính là giá trị track_classify.
+    return {
+        QStringLiteral("Phantom 1"),
+        QStringLiteral("Phantom 2"),
+        QStringLiteral("Phantom 3"),
+        QStringLiteral("Phantom 4"),
+        QStringLiteral("Phantom 5"),
+    };
+}
+
+QString AppSettings::classifyName(quint32 classify) const
+{
+    if (classify == 0 || classify > quint32(classifyNames.size()))
+        return {};
+    return classifyNames.at(int(classify) - 1);
+}
+
 QString AppSettings::filePath()
 {
     return QCoreApplication::applicationDirPath() + QLatin1Char('/')
@@ -157,6 +178,26 @@ bool AppSettings::load()
     tcPlaceNames  = o.value(QStringLiteral("tcPlaceNames")).toBool(tcPlaceNames);
     tcProvinces   = o.value(QStringLiteral("tcProvinces")).toBool(tcProvinces);
 
+    showTracks      = o.value(QStringLiteral("showTracks")).toBool(showTracks);
+    showTrackInfo   = o.value(QStringLiteral("showTrackInfo")).toBool(showTrackInfo);
+    showPlots       = o.value(QStringLiteral("showPlots")).toBool(showPlots);
+    showPlotInfo    = o.value(QStringLiteral("showPlotInfo")).toBool(showPlotInfo);
+    trackHistory    = o.value(QStringLiteral("trackHistory")).toInt(trackHistory);
+
+    colors.fromJson(o.value(QStringLiteral("colors")).toObject());
+
+    // Danh sách rỗng trong file (người dùng xoá sạch) thì giữ danh sách mặc
+    // định — không có tên phân loại nào thì menu "Nhận dạng" thành menu trống.
+    if (const QJsonArray a = o.value(QStringLiteral("classifyNames")).toArray(); !a.isEmpty()) {
+        QStringList names;
+        for (const QJsonValue &v : a) {
+            if (const QString s = v.toString().trimmed(); !s.isEmpty())
+                names << s;
+        }
+        if (!names.isEmpty())
+            classifyNames = names;
+    }
+
     // Chuyển đổi từ bố cục cũ (một bộ tile duy nhất ở maps/mt/tiles) sang bố
     // cục nhiều kiểu nền (maps/mt/<style>/). Chỉ đụng đúng giá trị mặc định cũ
     // mà phần mềm từng ghi ra, không động vào đường dẫn người dùng tự đặt.
@@ -169,6 +210,7 @@ bool AppSettings::load()
     siteLng       = qBound(-180.0, siteLng, 180.0);
     maxRangeKm    = qBound(kMinRangeKm, maxRangeKm, kMaxRangeKm);
     videoFadeSec  = qBound(0, videoFadeSec, 10);
+    trackHistory  = qBound(0, trackHistory, kMaxHistory);
     return true;
 }
 
@@ -194,6 +236,14 @@ bool AppSettings::save() const
     o[QStringLiteral("tcRivers")]      = tcRivers;
     o[QStringLiteral("tcPlaceNames")]  = tcPlaceNames;
     o[QStringLiteral("tcProvinces")]   = tcProvinces;
+
+    o[QStringLiteral("showTracks")]      = showTracks;
+    o[QStringLiteral("showTrackInfo")]   = showTrackInfo;
+    o[QStringLiteral("showPlots")]       = showPlots;
+    o[QStringLiteral("showPlotInfo")]    = showPlotInfo;
+    o[QStringLiteral("trackHistory")]    = trackHistory;
+    o[QStringLiteral("colors")]          = colors.toJson();
+    o[QStringLiteral("classifyNames")]   = QJsonArray::fromStringList(classifyNames);
 
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly))

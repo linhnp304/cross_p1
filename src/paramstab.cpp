@@ -4,6 +4,7 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
@@ -62,16 +63,64 @@ ParamsTab::ParamsTab(QWidget *parent)
     m_rmax = new QLabel(rangeBox);
     m_rmax->setStyleSheet(QStringLiteral("color: #7fa8c9;"));
 
+    // Nút "Áp dụng" nằm trong chính group thang cự ly, góc dưới bên phải: nó
+    // chỉ có tác dụng với nhóm tham số này, để rời ra ngoài thì trông như nó
+    // áp dụng cho cả tab.
+    m_apply = new QPushButton(tr("Áp dụng"), rangeBox);
+    auto *applyRow = new QHBoxLayout;
+    applyRow->addStretch(1);
+    applyRow->addWidget(m_apply, 0);
+
     rangeLay->addWidget(m_autoStatus);
     rangeLay->addWidget(m_autoRange);
     rangeLay->addWidget(m_rmax);
+    rangeLay->addLayout(applyRow);
 
-    m_apply = new QPushButton(tr("Áp dụng"), this);
+    // --- Xử lý theo rẻ quạt ----------------------------------------------
+    auto *sectorBox = new QGroupBox(tr("Xử lý theo rẻ quạt"), this);
+    auto *sectorLay = new QVBoxLayout(sectorBox);
+
+    m_sectorOn = new QCheckBox(tr("Chỉ xử lý điểm dấu trong một góc rẻ quạt"),
+                               sectorBox);
+    m_sectorOn->setToolTip(tr("Bỏ qua dữ liệu RAW_P ngoài rẻ quạt. Góc tính "
+                              "theo chiều kim đồng hồ từ góc bắt đầu tới góc "
+                              "kết thúc, nên bắt đầu > kết thúc là rẻ quạt vắt "
+                              "qua hướng bắc"));
+
+    auto *sectorForm = new QFormLayout;
+    m_sectorStart = new QDoubleSpinBox(sectorBox);
+    m_sectorStart->setDecimals(2);
+    m_sectorStart->setRange(0.0, 360.0);
+    m_sectorStart->setSingleStep(5.0);
+    m_sectorStop = new QDoubleSpinBox(sectorBox);
+    m_sectorStop->setDecimals(2);
+    m_sectorStop->setRange(0.0, 360.0);
+    m_sectorStop->setSingleStep(5.0);
+    sectorForm->addRow(tr("Góc bắt đầu (°)"), m_sectorStart);
+    sectorForm->addRow(tr("Góc kết thúc (°)"), m_sectorStop);
+
+    sectorLay->addWidget(m_sectorOn);
+    sectorLay->addLayout(sectorForm);
+
+    // --- Tham số thuật toán xử lý ----------------------------------------
+    auto *algoBox = new QGroupBox(tr("Tham số thuật toán xử lý"), this);
+    auto *algoLay = new QVBoxLayout(algoBox);
+
+    auto *beamBtn = new QPushButton(tr("Tham số chùm xung..."), algoBox);
+    beamBtn->setToolTip(tr("Các tham số tính tâm chùm xung (điểm dấu)"));
+    auto *trackBtn = new QPushButton(tr("Tham số quỹ đạo..."), algoBox);
+    trackBtn->setToolTip(tr("Bộ lọc Kalman và quản lý danh sách quỹ đạo"));
+    algoLay->addWidget(beamBtn);
+    algoLay->addWidget(trackBtn);
 
     root->addWidget(box);
     root->addWidget(rangeBox);
-    root->addWidget(m_apply, 0, Qt::AlignLeft);
+    root->addWidget(sectorBox);
+    root->addWidget(algoBox);
     root->addStretch(1);
+
+    connect(beamBtn, &QPushButton::clicked, this, &ParamsTab::beamParamsRequested);
+    connect(trackBtn, &QPushButton::clicked, this, &ParamsTab::trackParamsRequested);
 
     // --- Nối tín hiệu -----------------------------------------------------
     // Dòng cự ly tính được đi theo ô nhập ngay, để thấy trước kết quả rồi mới
@@ -93,6 +142,17 @@ ParamsTab::ParamsTab(QWidget *parent)
     });
     connect(m_autoRange, &QCheckBox::toggled, this, &ParamsTab::apply);
     connect(m_apply, &QPushButton::clicked, this, &ParamsTab::apply);
+
+    // Rẻ quạt có hiệu lực ngay, không chờ nút "Áp dụng": nút đó thuộc về nhóm
+    // thang cự ly, mà rẻ quạt lại là thứ hay phải chỉnh đi chỉnh lại lúc đang
+    // theo dõi một mục tiêu.
+    connect(m_sectorOn, &QCheckBox::toggled, this, [this](bool on) {
+        m_sectorStart->setEnabled(on);
+        m_sectorStop->setEnabled(on);
+        apply();
+    });
+    connect(m_sectorStart, &QDoubleSpinBox::valueChanged, this, &ParamsTab::apply);
+    connect(m_sectorStop, &QDoubleSpinBox::valueChanged, this, &ParamsTab::apply);
 
     setParams(m_params);
 }
@@ -136,6 +196,12 @@ void ParamsTab::setParams(const AppParams &p)
     m_autoRange->setChecked(p.autoRange || p.autoFromStatus);
     m_autoRange->setEnabled(!p.autoFromStatus);
 
+    m_sectorOn->setChecked(p.sectorOn);
+    m_sectorStart->setValue(p.sectorStart);
+    m_sectorStop->setValue(p.sectorStop);
+    m_sectorStart->setEnabled(p.sectorOn);
+    m_sectorStop->setEnabled(p.sectorOn);
+
     m_loading = false;
     refreshDerived();
 }
@@ -151,6 +217,10 @@ void ParamsTab::apply()
     m_params.zfbeat = quint32(m_zfbeat->value());
     m_params.autoFromStatus = m_autoStatus->isChecked();
     m_params.autoRange      = m_autoRange->isChecked();
+
+    m_params.sectorOn    = m_sectorOn->isChecked();
+    m_params.sectorStart = m_sectorStart->value();
+    m_params.sectorStop  = m_sectorStop->value();
 
     emit paramsApplied(m_params);
 }
