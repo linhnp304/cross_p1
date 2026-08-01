@@ -31,11 +31,68 @@ Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khá
 > Lúc phát triển, file chạy nằm trong `build/` nên cấu hình cũng ở đó và sẽ mất
 > khi xoá thư mục `build`. Không sao — thiếu file thì phần mềm dùng giá trị mặc định.
 
+## Lắp đặt lên máy mới
+
+Chép cả bộ sang máy sạch rồi làm bốn việc sau. Hai việc đầu mà thiếu thì màn
+hình trống trơn.
+
+**1. Mở tường lửa cho các cổng nhận.** Chỗ này mất thời gian nhất khi lắp đặt
+thật, vì triệu chứng đánh lừa: tường lửa chặn thì Wireshark **vẫn bắt được gói**
+(nó nghe trước tường lửa) nhưng phần mềm không nhận được gì.
+
+```bash
+sudo ufw allow in on <tên-card> to any port 8200,8300 proto udp
+```
+
+Windows: Windows Defender Firewall → Inbound Rules → New Rule → UDP, cổng
+`8200,8300` → Allow.
+
+**2. Điền tab Kết nối** theo đúng thực tế đấu nối:
+
+| Cột | Điền gì | Ví dụ thực địa |
+|---|---|---|
+| `LocalIP` | IP của **card mạng nối với đài** trên máy này | `192.168.1.223` |
+| `RemoteIP` | IP của đài | `192.168.1.225` |
+| `LocalPort` | Cổng nhận RAW_V / RAW_P | `8200` / `8300` |
+| `RemotePort` | Luôn để `0` — đài gửi từ cổng nguồn ngẫu nhiên | `0` |
+
+`LocalIP` chỉ để **chọn card**, không phải địa chỉ đem đi bind: đài phát quảng bá
+(tới `192.168.1.255`) nên phần mềm luôn nghe trên mọi địa chỉ rồi lọc lại theo
+card. Để trống hoặc `0.0.0.0` là nghe trên mọi card. Mỗi cổng chỉ khai một dòng.
+
+**3. Đừng chạy bằng `sudo`.** Chạy một lần bằng root là hai file cấu hình đổi
+chủ sang root; sau đó chạy bằng người dùng thường sẽ **không lưu được** thay đổi
+nào nữa mà cũng không báo lỗi. Lỡ rồi thì `sudo chown $USER params.json mx01.json`.
+
+**4. Đối chiếu tham số** Fs, B, Tc, ZFbeat bên tab Tham số cho khớp đài — ZFbeat
+sai thang thì dữ liệu về đủ nhưng nền tạp vẫn đen kịt.
+
+### Không thấy dữ liệu thì xem ở đâu
+
+Dòng chữ dưới bảng cổng nói thẳng đang hỏng ở đâu: chưa nhận được gói nào, có
+gói nhưng sai giao thức, hay đang nhận bình thường. Vẫn bí thì đếm xem gói chết
+ở tầng nào — không cần quyền root:
+
+```bash
+nstat -az > /tmp/n1; sleep 5; nstat -az > /tmp/n2
+join /tmp/n1 /tmp/n2 | awk '{d=$4-$2; if(d!=0 && ($1 ~ /^Ip/ || $1 ~ /^Udp/)) print $1, d}'
+```
+
+- `IpReasmOKs` tăng đúng nhịp gói mà `IpInDelivers` đứng im → **tường lửa chặn**.
+- `IpInDelivers` tăng mà `UdpNoPorts` cũng tăng → chưa ai mở cổng đó.
+- `IpExtInBcastPkts` chiếm phần lớn → đài đang phát quảng bá, đúng như dự tính.
+
+Nhật ký `/var/log/ufw.log` chỉ ghi ~3 dòng mỗi phút, nên **không có dòng nào
+không có nghĩa là không bị chặn**.
+
 ## Nhận dữ liệu ra đa
 
 Tab **Kết nối** liệt kê các cổng UDP nhận dữ liệu. Mặc định có sẵn ba dòng
 `UDP-RAW_V` (6001), `UDP-RAW_P` (6002), `UDP-STATUS` (6003) trên `127.0.0.1`.
 
+- `LocalIP` là địa chỉ của **card mạng** nối với đài, không phải địa chỉ đem đi
+  bind — xem [Lắp đặt lên máy mới](#lắp-đặt-lên-máy-mới). Để trống hoặc
+  `0.0.0.0` là nghe trên mọi card.
 - `RemoteIP` để trống hoặc `0.0.0.0`, `RemotePort` để `0` → nhận từ **mọi máy /
   mọi cổng**. Đây là mặc định, vì bên gửi thường dùng cổng nguồn ngẫu nhiên.
 - Cột **Tên** chỉ là nhãn cho người đọc. Gói tin được phân loại theo header của

@@ -72,7 +72,9 @@ ConnectionTab::ConnectionTab(QWidget *parent)
     m_rx->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_rx->horizontalHeader()->setStretchLastSection(true);
     m_rx->setMinimumHeight(130);
-    m_rx->setToolTip(tr("RemoteIP để trống hoặc 0.0.0.0, RemotePort để 0: "
+    m_rx->setToolTip(tr("LocalIP: địa chỉ của card mạng nối với đài — để trống "
+                        "hoặc 0.0.0.0 là nghe trên mọi card.\n"
+                        "RemoteIP để trống hoặc 0.0.0.0, RemotePort để 0: "
                         "nhận từ mọi máy / mọi cổng"));
     rxLay->addWidget(m_rx);
 

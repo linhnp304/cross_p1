@@ -37,6 +37,11 @@ constexpr int kTickMs = 40;
 /// không phân biệt được mờ 25 lần hay 13 lần mỗi giây.
 constexpr int kMinFadeMs = 75;
 
+/// Mở cổng xong bao lâu mà chưa có gói nào thì coi là hỏng. Đài phát liên tục
+/// vài trăm gói mỗi giây nên 3 giây là quá đủ để gói đầu tiên về; để ngắn hơn
+/// thì lần nào bấm Kết nối cũng loé cảnh báo đỏ một nhịp.
+constexpr int kNoDataWarnMs = 3000;
+
 /// Khung rỗng cho các phần sẽ làm ở giai đoạn sau.
 QWidget *makePlaceholder(const QString &text)
 {
@@ -347,6 +352,7 @@ void MainWindow::startLink()
     m_link->setZfbeat(m_params.zfbeat);
     m_link->start(m_params.rx);
     m_connectionTab->setRunning(true);
+    m_linkClock.restart();
 
     m_tick->start();
     m_statusTick->start();
@@ -390,6 +396,30 @@ void MainWindow::refreshLinkStatus()
     if (!m_link->isRunning()) {
         m_connectionTab->setStatusText(
             tr("Đã dừng — nhận được %1 gói RAW_V").arg(s.rawV));
+        return;
+    }
+
+    // Mở được cổng mà không có gói nào là lỗi hay gặp nhất lúc lắp đặt, và
+    // cũng là lỗi khó đoán nhất: nút bấm xong không báo gì, chỉ có màn hình
+    // trống. Chỉ ra sẵn ba chỗ cần xem thay vì để trắc thủ ngồi đoán.
+    if (s.rawV == 0 && s.rawP == 0 && s.other == 0) {
+        if (m_linkClock.isValid() && m_linkClock.elapsed() >= kNoDataWarnMs) {
+            m_connectionTab->setStatusText(
+                tr("Đã mở cổng nhưng %1 giây rồi chưa nhận được gói nào — kiểm "
+                   "tra tường lửa của máy, LocalIP đã đúng card nối với đài "
+                   "chưa, và đài đã phát chưa")
+                    .arg(m_linkClock.elapsed() / 1000), true);
+        } else {
+            m_connectionTab->setStatusText(tr("Đã mở cổng — đang chờ dữ liệu"));
+        }
+        return;
+    }
+
+    // Có gói về nhưng không gói nào đúng giao thức: mạng thông, sai chỗ khác.
+    if (s.rawV == 0 && s.rawP == 0) {
+        m_connectionTab->setStatusText(
+            tr("Nhận được %1 gói nhưng không gói nào đúng giao thức RAW_V/RAW_P "
+               "— nhiều khả năng sai cổng").arg(s.other), true);
         return;
     }
 

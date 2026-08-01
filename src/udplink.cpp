@@ -2,6 +2,8 @@
 
 #include <QHostAddress>
 #include <QNetworkDatagram>
+#include <QNetworkInterface>
+#include <QSet>
 #include <QThread>
 #include <QUdpSocket>
 #include <QVariant>
@@ -13,12 +15,27 @@ namespace {
 /// mất gói. 8 MB cho khoảng 2 giây dữ liệu, đủ để vượt qua mọi khựng ngắn.
 constexpr int kSocketRecvBuffer = 8 * 1024 * 1024;
 
-QHostAddress bindAddress(const QString &ip)
+/// Số hiệu card mạng đang mang địa chỉ `ip`:
+///   > 0  — đúng card đó
+///     0  — ô để trống hoặc 0.0.0.0, nghĩa là nghe trên mọi card
+///    -1  — địa chỉ không thuộc card nào trên máy này
+int interfaceIndexFor(const QString &ip)
 {
     const QString s = ip.trimmed();
     if (s.isEmpty() || s == QLatin1String("0.0.0.0"))
-        return QHostAddress(QHostAddress::AnyIPv4);
-    return QHostAddress(s);
+        return 0;
+
+    const QHostAddress want(s);
+    if (want.isNull())
+        return -1;
+
+    for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
+        for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
+            if (entry.ip().isEqual(want, QHostAddress::TolerantConversion))
+                return iface.index();
+        }
+    }
+    return -1;
 }
 
 } // namespace
@@ -97,11 +114,12 @@ signals:
     void failed(const QString &message);
 
 private:
-    /// Một cổng đã mở, kèm bộ lọc phía gửi.
+    /// Một cổng đã mở, kèm bộ lọc phía gửi và bộ lọc card mạng.
     struct Bound {
         QUdpSocket  *socket = nullptr;
         QHostAddress remote;        ///< rỗng = nhận từ mọi máy
         quint16      remotePort = 0;///< 0 = nhận từ mọi cổng
+        int          ifIndex = 0;   ///< 0 = nhận trên mọi card
     };
 
     void read(const Bound &b);
@@ -122,18 +140,37 @@ void UdpWorker::open(const QVector<NetEndpoint> &endpoints)
 {
     close();
 
+    QSet<quint16> taken;
+
     for (const NetEndpoint &ep : endpoints) {
-        const QHostAddress local = bindAddress(ep.localIp);
-        if (local.isNull()) {
-            emit failed(tr("%1: địa chỉ LocalIP không hợp lệ (%2)")
+        // Ô LocalIP nói **card nào**, chứ không phải địa chỉ đem đi bind. Đài
+        // phát RAW_V/RAW_P tới địa chỉ quảng bá của mạng (192.168.1.255), mà
+        // socket bind thẳng vào một địa chỉ đơn hướng thì hệ điều hành không
+        // bao giờ giao gói quảng bá cho nó — cổng mở thành công, không báo lỗi
+        // gì, nhưng màn hình trống trơn. Nên luôn bind mọi địa chỉ rồi lọc lại
+        // theo card ở read().
+        const int ifIndex = interfaceIndexFor(ep.localIp);
+        if (ifIndex < 0) {
+            emit failed(tr("%1: LocalIP %2 không phải địa chỉ của card mạng nào "
+                           "trên máy — tạm nghe trên mọi card")
                             .arg(ep.name, ep.localIp));
+        }
+
+        // Hai dòng cùng một cổng thì dòng sau bind hỏng với thông báo khó hiểu
+        // của hệ điều hành; nói thẳng ra đây cho dễ sửa. Trước đây hai dòng
+        // khác LocalIP còn mở được cùng cổng, nay bind chung một địa chỉ nên
+        // không còn.
+        if (taken.contains(ep.localPort)) {
+            emit failed(tr("%1: cổng %2 đã dùng cho một dòng phía trên — mỗi "
+                           "cổng chỉ khai báo một lần")
+                            .arg(ep.name).arg(ep.localPort));
             continue;
         }
 
         auto *socket = new QUdpSocket(this);
-        if (!socket->bind(local, ep.localPort)) {
-            emit failed(tr("%1: không mở được cổng %2:%3 — %4")
-                            .arg(ep.name, ep.localIp)
+        if (!socket->bind(QHostAddress::AnyIPv4, ep.localPort)) {
+            emit failed(tr("%1: không mở được cổng %2 — %3")
+                            .arg(ep.name)
                             .arg(ep.localPort)
                             .arg(socket->errorString()));
             delete socket;
@@ -141,11 +178,13 @@ void UdpWorker::open(const QVector<NetEndpoint> &endpoints)
         }
         socket->setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
                                 QVariant(kSocketRecvBuffer));
+        taken.insert(ep.localPort);
 
         Bound b;
         b.socket     = socket;
         b.remote     = ep.acceptsAnyHost() ? QHostAddress() : QHostAddress(ep.remoteIp);
         b.remotePort = ep.remotePort;
+        b.ifIndex    = qMax(ifIndex, 0);
 
         if (!ep.acceptsAnyHost() && b.remote.isNull()) {
             emit failed(tr("%1: địa chỉ RemoteIP không hợp lệ (%2) — tạm nhận "
@@ -171,6 +210,14 @@ void UdpWorker::read(const Bound &b)
     while (b.socket->hasPendingDatagrams()) {
         const QNetworkDatagram dg = b.socket->receiveDatagram();
         if (!dg.isValid())
+            continue;
+
+        // Lọc theo card mạng: socket nghe trên mọi địa chỉ nên gói của cùng
+        // cổng đó từ card khác (wifi, VPN) cũng vào đây. interfaceIndex() bằng
+        // 0 là nền tảng không cho biết gói vào từ card nào — khi ấy đành nhận,
+        // thà thừa còn hơn câm.
+        if (b.ifIndex != 0 && dg.interfaceIndex() != 0
+            && dg.interfaceIndex() != b.ifIndex)
             continue;
 
         // Lọc phía gửi. TolerantConversion để địa chỉ IPv4 tới qua socket

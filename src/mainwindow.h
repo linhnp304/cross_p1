@@ -76,4 +76,8 @@ private:
     /// Đo khoảng thời gian thật giữa hai lần làm mờ — nhịp vẽ có thể trồi sụt,
     /// mà tốc độ mờ thì phải theo đồng hồ chứ không theo số khung hình.
     QElapsedTimer m_fadeClock;
+
+    /// Đếm từ lúc bấm Kết nối, để biết khi nào việc chưa có gói nào đáng coi
+    /// là hỏng chứ không còn là đang chờ gói đầu tiên.
+    QElapsedTimer m_linkClock;
 };
