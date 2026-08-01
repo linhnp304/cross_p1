@@ -41,6 +41,10 @@ private:
     /// Tính lại cự ly tối đa từ tham số rồi cập nhật sang tab "Cài đặt".
     void updateRangeFromParams();
 
+    /// Toạ độ con trỏ trên thanh trạng thái: kinh/vĩ độ kèm phương vị và cự ly
+    /// tính từ tâm đài.
+    void updateCursorLabel(double lat, double lng);
+
     void startLink();
     void stopLink();
 

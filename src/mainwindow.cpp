@@ -3,6 +3,7 @@
 #include "appinfo.h"
 #include "ascope.h"
 #include "connectiontab.h"
+#include "geo.h"
 #include "lanstatus.h"
 #include "paramstab.h"
 #include "radarview.h"
@@ -115,9 +116,7 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(central);
 
     connect(m_radar, &RadarView::cursorGeoChanged, this,
-            [this](double lat, double lng) {
-                m_cursorLabel->setText(tr("Con trỏ  %1").arg(formatLatLng(lat, lng)));
-            });
+            &MainWindow::updateCursorLabel);
 
     connect(m_settingsTab, &SettingsTab::settingsChanged, this,
             &MainWindow::applySettings);
@@ -203,8 +202,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_siteLabel->setText(tr("Tâm đài  %1")
                              .arg(formatLatLng(m_settings.siteLat, m_settings.siteLng)));
-    m_cursorLabel->setText(tr("Con trỏ  %1")
-                               .arg(formatLatLng(m_settings.siteLat, m_settings.siteLng)));
+    updateCursorLabel(m_settings.siteLat, m_settings.siteLng);
 
     resize(1920, 1080);
 }
@@ -333,6 +331,20 @@ void MainWindow::updateRangeFromParams()
     m_radar->setSettings(m_settings);
     m_ascope->setMaxRangeKm(km);
     m_settings.save();
+}
+
+void MainWindow::updateCursorLabel(double lat, double lng)
+{
+    // Kinh/vĩ độ để đối chiếu với bản đồ, phương vị/cự ly để đọc theo cách của
+    // trắc thủ — cùng một điểm, hai cách nhìn, nên để cạnh nhau.
+    double bearingDeg = 0.0, distKm = 0.0;
+    geo::bearingDistance(m_settings.siteLat, m_settings.siteLng, lat, lng,
+                         bearingDeg, distKm);
+
+    m_cursorLabel->setText(tr("Con trỏ  %1   Phương vị %2°  Cự ly %3 km")
+                               .arg(formatLatLng(lat, lng))
+                               .arg(bearingDeg, 0, 'f', 3)
+                               .arg(distKm, 0, 'f', 3));
 }
 
 // -------------------------------------------------------------- kết nối ----

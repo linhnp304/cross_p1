@@ -30,13 +30,29 @@ public:
 protected:
     void paintEvent(QPaintEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void leaveEvent(QEvent *e) override;
 
 private:
+    /// Vùng vẽ đường biên độ, đã trừ lề. Dùng chung cho cả việc dựng đường,
+    /// vẽ lưới và quy vị trí chuột về ô cự ly — ba chỗ này phải khớp nhau.
+    QRectF plotRect() const;
+
     /// Quy 1024 điểm biên độ về toạ độ pixel của widget.
     void rebuildPolyline();
+
+    /// Ô cự ly (0..1023) ứng với hoành độ `x` trên màn hình, -1 nếu ở ngoài
+    /// vùng vẽ hoặc chưa có dữ liệu.
+    int binAt(double x) const;
+
+    /// Cự ly (km) tại tâm ô thứ `bin`.
+    double rangeKmAt(int bin) const;
 
     rawpkt::RawVSweep m_sweep;
     bool      m_hasTrace  = false;
     double    m_maxRangeKm = 20.0;
     QPolygonF m_line;
+
+    /// Ô cự ly con trỏ đang chỉ vào, -1 khi chuột ra ngoài widget.
+    int m_hoverBin = -1;
 };

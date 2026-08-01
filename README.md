@@ -102,6 +102,19 @@ Tab **Kết nối** liệt kê các cổng UDP nhận dữ liệu. Mặc định
 Dữ liệu `RAW_V` (1024 điểm biên độ mỗi gói, ~400 gói/giây) hiện ở hai nơi: nền
 tạp trên bản đồ (panel 1) và đường biên độ trên cửa sổ biên độ (panel 2.2).
 
+Đọc số tại một điểm cụ thể:
+
+- **Trên bản đồ** — thanh trạng thái hiện kinh/vĩ độ con trỏ, kèm **phương vị và
+  cự ly** tính từ tâm đài, làm tròn tới 0.001° và 1 m.
+- **Trên cửa sổ biên độ** — rê chuột vào là hiện biên độ và cự ly của ô đang
+  trỏ, kèm vạch chỉ vị trí. Cự ly theo đúng công thức của cự ly tối đa, thay số
+  ô vào chỗ 1024, rút gọn còn **R = Rmax·n/1024**; ô cuối cùng vì thế đúng bằng
+  cự ly tối đa. Panel hẹp thì hai nhãn `0` và cự ly tối đa tự ẩn để nhường chỗ.
+
+Một cột màn hình thường gộp vài ô cự ly (1024 ô mà panel chỉ rộng vài trăm
+pixel). Cả đường biên độ lẫn số đọc đều lấy **ô cao nhất** trong nhóm, nên con
+số luôn khớp với cái đỉnh đang nhìn thấy chứ không phải một ô lân cận thấp hơn.
+
 Việc đọc socket và giải mã chạy trên một luồng riêng, đẩy vào hai bộ đệm tách
 biệt — một cho hiển thị, một dành sẵn cho chức năng ghi lưu ở giai đoạn sau.
 
