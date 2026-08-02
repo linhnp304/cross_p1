@@ -50,6 +50,9 @@ maps/
 mx01.json
 params.json
 
+# Dữ liệu ghi lưu (file .rec tới hàng GB) và danh mục phiên
+records/
+
 # Python
 __pycache__/
 *.pyc

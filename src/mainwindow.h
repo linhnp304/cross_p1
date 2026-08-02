@@ -5,11 +5,14 @@
 #include "beamcenter.h"
 #include "plotstore.h"
 #include "radarvideo.h"
+#include "recordfile.h"
 #include "tracker.h"
 
 #include <QElapsedTimer>
 #include <QMainWindow>
 #include <QVector>
+
+#include <deque>
 
 class AScope;
 class BeamParamsDialog;
@@ -17,10 +20,13 @@ class ColorsTab;
 class ConnectionTab;
 class LanIndicator;
 class ParamsTab;
+class Player;
 class PlotListWindow;
 class QLabel;
 class QTimer;
 class RadarView;
+class Recorder;
+class RecordTab;
 class SettingsTab;
 class TrackInfoPopup;
 class TrackListTab;
@@ -34,6 +40,11 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+
+protected:
+    /// Hỏi lại trước khi thoát. Đóng nhầm cửa sổ giữa ca trực là mất cả nền tạp
+    /// đang tích, mọi quỹ đạo đang bám và phần ghi lưu đang dở.
+    void closeEvent(QCloseEvent *e) override;
 
 private:
     QWidget *buildRightColumn();
@@ -71,9 +82,37 @@ private:
     void startLink();
     void stopLink();
 
+    void startSending();
+    void stopSending();
+
+    // --- ghi lưu và phát lại ---
+    void startRecording(bool raw, bool proc);
+    void stopRecording();
+    void startReplay(const QString &path, bool raw, quint32 total, double speed);
+    void stopReplay();
+
+    /// Dựng lại trạng thái hiển thị và xử lý về vạch xuất phát. Dùng chung cho
+    /// lúc bắt đầu nhận dữ liệu thật và lúc bắt đầu phát lại — cả hai đều mở
+    /// một dòng dữ liệu mới, mà chùm xung dở dang với quỹ đạo của lần trước thì
+    /// không còn liên quan gì tới nó.
+    void resetProcessing();
+
+    /// Đưa một bản ghi lấy từ file vào đúng chỗ của nó trong đường xử lý. Trả
+    /// về true khi bản ghi đó vừa vẽ thêm một lượt quét vào ảnh nền tạp — nơi
+    /// gọi gom lại để chỉ dựng lại đường biên độ một lần cho cả nhịp.
+    bool applyReplayItem(const rec::RecItem &item);
+
+    /// Chạy/dừng nhịp vẽ theo việc còn nguồn dữ liệu nào đang chảy hay không.
+    void syncTimers();
+
+    /// Ghi một lượt quét đã giải mã vào file dữ liệu đã xử lý. Chỉ dùng ở đường
+    /// phát lại — lúc nhận thật thì chính luồng mạng ghi, xem UdpWorker::read().
+    void recordSweep(const rawpkt::RawVSweep &s);
+
     /// Nhịp lấy dữ liệu ra khỏi bộ đệm, dựng nền tạp rồi vẽ lại.
     void onTick();
     void refreshLinkStatus();
+    void refreshRecordStatus();
 
     /// Xử lý một chu kỳ RAW_P: tách chùm xung, sinh điểm dấu, đẩy vào bộ bám.
     void processCycle(const rawpkt::RawPCycle &cycle);
@@ -89,6 +128,12 @@ private:
     void changeAltitude(quint32 id, quint32 metres);
     void changeClassify(quint32 id, quint32 classify);
     void removeTrack(quint32 id);
+
+    /// Xoá sạch lớp điểm dấu đang vẽ trên panel 1.
+    void clearAllPlots();
+
+    /// Xoá sạch danh sách quỹ đạo, có hỏi lại trước.
+    void clearAllTracks();
 
     /// Menu chuột phải trên một quỹ đạo.
     void showTrackMenu(quint32 id, const QPoint &globalPos);
@@ -109,6 +154,7 @@ private:
     ParamsTab     *m_paramsTab     = nullptr;
     ColorsTab     *m_colorsTab     = nullptr;
     ConnectionTab *m_connectionTab = nullptr;
+    RecordTab     *m_recordTab     = nullptr;
     TrackListTab  *m_trackTab      = nullptr;
     AScope        *m_ascope        = nullptr;
 
@@ -126,9 +172,19 @@ private:
 
     UdpLink    *m_link       = nullptr;
     UdpSender  *m_sender     = nullptr;
+    Recorder   *m_recorder   = nullptr;
+    Player     *m_player     = nullptr;
     QTimer     *m_tick       = nullptr;
     QTimer     *m_statusTick = nullptr;
     RadarVideo  m_video;
+
+    /// Nút "Bắt đầu gửi dữ liệu" đang bật. Khác với ô "Gửi" của từng dòng: đây
+    /// là công tắc chung, tắt thì không dòng nào giữ socket cả.
+    bool m_txOn = false;
+
+    /// Đang phát lại dữ liệu gốc (khác với dữ liệu đã qua xử lý). Quyết định cả
+    /// đường đi của dữ liệu lẫn việc có cho bật ghi lưu hay không.
+    bool m_replayRaw = false;
 
     BeamCenter  m_beams;
     Tracker     m_tracker;
@@ -138,6 +194,7 @@ private:
     QVector<rawpkt::RawVSweep> m_drained;
     QVector<rawpkt::RawPCycle> m_cycles;
     QVector<PlotTC>            m_newPlots;
+    std::deque<rec::RecItem>   m_replayed;
 
     /// Phương vị RAW_P của chu kỳ trước, để nhận ra lúc ăng-ten quay hết vòng.
     int m_lastPAzimuth = -1;

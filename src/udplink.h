@@ -2,6 +2,7 @@
 
 #include "appparams.h"
 #include "rawpacket.h"
+#include "recordfile.h"
 
 #include <QByteArray>
 #include <QMutex>
@@ -68,33 +69,6 @@ private:
     std::atomic<quint64> m_dropped{0};
 };
 
-/// "Bộ đệm 2": giữ nguyên gói thô để ghi lưu.
-///
-/// Giai đoạn này chưa ghi ra file, nên chỉ cần chặn trần dung lượng rồi bỏ gói
-/// cũ nhất — có chỗ sẵn để cắm chức năng ghi lưu vào ở giai đoạn sau mà không
-/// phải sửa lại đường đi của dữ liệu.
-class RecordQueue
-{
-public:
-    explicit RecordQueue(int capacityBytes = 32 * 1024 * 1024)
-        : m_capacityBytes(capacityBytes) {}
-
-    void push(const QByteArray &datagram);
-    void clear();
-
-    quint64 stored() const  { return m_stored.load(std::memory_order_relaxed); }
-    quint64 dropped() const { return m_dropped.load(std::memory_order_relaxed); }
-
-private:
-    mutable QMutex m_mutex;
-    std::deque<QByteArray> m_queue;
-    qint64 m_bytes = 0;
-    qint64 m_capacityBytes;
-
-    std::atomic<quint64> m_stored{0};
-    std::atomic<quint64> m_dropped{0};
-};
-
 /// Bộ đếm gói: luồng mạng ghi, luồng giao diện đọc.
 struct LinkCounters {
     std::atomic<quint64> rawV{0};
@@ -141,6 +115,11 @@ public:
     /// Hệ số căn chỉnh biên độ, đổi được cả khi đang chạy.
     void setZfbeat(quint32 v);
 
+    /// "Bộ đệm 2" của thiết kế: nơi đẩy dữ liệu sang luồng ghi lưu. Con trỏ
+    /// mượn, phải sống lâu hơn đối tượng này. Đặt một lần lúc khởi tạo; lúc
+    /// không ghi lưu thì hai cờ trong hàng đợi đều tắt và đường này không tốn gì.
+    void setSpool(rec::RecordSpool *spool);
+
     /// Lấy các lượt quét nhận được từ lần gọi trước. Gọi từ luồng giao diện.
     void drain(QVector<rawpkt::RawVSweep> &out) { m_sweeps.drain(out); }
 
@@ -160,8 +139,8 @@ private:
     UdpWorker *m_worker = nullptr;
     bool       m_running = false;
 
-    SweepQueue   m_sweeps;
-    PlotQueue    m_cycles;
-    RecordQueue  m_records;
-    LinkCounters m_counters;
+    SweepQueue        m_sweeps;
+    PlotQueue         m_cycles;
+    rec::RecordSpool *m_spool = nullptr;
+    LinkCounters      m_counters;
 };

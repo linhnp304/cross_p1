@@ -1,10 +1,15 @@
 #pragma once
 
-// Đóng gói PlotTC và Track thành datagram để gửi đi hệ thống khác.
+// Đóng gói PlotTC và Track thành datagram để gửi đi hệ thống khác, và tách
+// ngược lại lúc phát lại file ghi lưu.
 //
 // Cách xếp byte giống hệt RAW_V/RAW_P: các từ 4 byte liền nhau, little-endian.
 // Riêng track_lat và track_lng là **số thực 4 byte**, không phải số nguyên —
 // đây là chỗ duy nhất trong cả bốn loại gói có kiểu khác, rất dễ bỏ sót.
+//
+// Hàm đóng gói và hàm tách phải đọc song song với nhau từng dòng một: hai danh
+// sách trường đó lệch nhau một ô là mọi trường phía sau sai hết mà không có gì
+// báo. Vì vậy chúng để cạnh nhau trong file này chứ không tách ra hai nơi.
 
 #include "plottrack.h"
 
@@ -61,6 +66,46 @@ private:
     char *m_data;
     int   m_at = 0;
 };
+
+/// Bộ đọc ngược lại Writer, cùng cách tự đếm vị trí.
+class Reader
+{
+public:
+    Reader(const char *data, int words) : m_data(data), m_words(words) {}
+
+    quint32 u32()
+    {
+        if (m_at >= m_words)
+            return 0;
+        return qFromLittleEndian<quint32>(
+            reinterpret_cast<const uchar *>(m_data) + m_at++ * 4);
+    }
+
+    float f32()
+    {
+        const quint32 bits = u32();
+        float v = 0.0f;
+        std::memcpy(&v, &bits, sizeof(v));
+        return v;
+    }
+
+    void skip(int n) { m_at += n; }
+
+private:
+    const char *m_data;
+    int         m_words;
+    int         m_at = 0;
+};
+
+/// Một datagram có đúng là gói tin loại `category` cỡ `size` không.
+inline bool matches(const char *data, int len, quint32 category, int size)
+{
+    if (len < size)
+        return false;
+    const auto *p = reinterpret_cast<const uchar *>(data);
+    return qFromLittleEndian<quint32>(p) == kHeader
+        && qFromLittleEndian<quint32>(p + 4) == category;
+}
 
 /// Gói tin điểm dấu tâm chùm — 26 từ.
 inline QByteArray buildPlot(const PlotTC &p)
@@ -134,6 +179,76 @@ inline QByteArray buildTrack(const Track &t)
 
     Q_ASSERT(w.count() == kWordsTrack);
     return out;
+}
+
+/// Tách một gói tin điểm dấu. False nếu không phải gói PlotTC.
+///
+/// Các trường chỉ dùng để hiển thị (lat/lng, bornMs) không nằm trong gói tin
+/// nên giữ nguyên giá trị mặc định — nơi gọi tự tính lại từ azm/range.
+inline bool parsePlot(const char *data, int len, PlotTC &out)
+{
+    if (!matches(data, len, kCategoryPlot, kSizePlot))
+        return false;
+
+    Reader r(data, kWordsPlot);
+    r.skip(3);                       // Header, Category, Length
+    out.serial           = r.u32();
+    out.timeMs           = r.u32();
+    out.azm              = r.u32();
+    out.range            = r.u32();
+    out.iffReturnedMode  = r.u32();
+    out.iffCommander     = r.u32();
+    out.iffFlightId      = r.u32();
+    out.iffAltitude      = r.u32();
+    out.iffFuelLevel     = r.u32();
+    out.numCX            = r.u32();
+    out.azmStart         = r.u32();
+    out.azmStop          = r.u32();
+    out.numLoseTotal     = r.u32();
+    out.amplitudeAverage = r.u32();
+    out.amplitudeCenter  = r.u32();
+    out.rangeStart       = r.u32();
+    out.doplerStart      = r.u32();
+    return true;
+}
+
+/// Tách một gói tin quỹ đạo. False nếu không phải gói Track.
+///
+/// Phần trạng thái bộ lọc Kalman và vết lịch sử không có trong gói tin: quỹ đạo
+/// dựng lại từ đây là để **hiển thị** đúng cái đã ghi, không phải để bám tiếp.
+inline bool parseTrack(const char *data, int len, Track &out)
+{
+    if (!matches(data, len, kCategoryTrack, kSizeTrack))
+        return false;
+
+    Reader r(data, kWordsTrack);
+    r.skip(3);
+    out.serial          = r.u32();
+    out.timeMs          = r.u32();
+    out.type            = TrackType(r.u32());
+    out.status          = TrackStatus(r.u32());
+    out.id              = r.u32();
+    out.top             = r.u32();
+    out.azm             = r.u32();
+    out.range           = r.u32();
+    out.velocity        = r.u32();
+    out.heading         = r.u32();
+    out.iffReturnedMode = r.u32();
+    out.iffCommander    = r.u32();
+    out.iffFlightId     = r.u32();
+    out.iffAltitude     = r.u32();
+    out.iffFuelLevel    = r.u32();
+    out.lat             = r.f32();
+    out.lng             = r.f32();
+    out.classify        = r.u32();
+    out.altitudeManual  = r.u32();
+    out.amplitude       = r.u32();
+    r.skip(1);                       // reserved01
+    out.windowAzm1      = r.u32();
+    out.windowAzm2      = r.u32();
+    out.windowRange1    = r.u32();
+    out.windowRange2    = r.u32();
+    return true;
 }
 
 } // namespace packetio

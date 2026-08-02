@@ -69,6 +69,19 @@ public:
     /// Đổi số đầu tốp. False nếu số đó đã có quỹ đạo khác dùng.
     bool setTop(quint32 id, quint32 top);
 
+    /// Nhận một quỹ đạo từ **bên ngoài** thuật toán — hiện chỉ dùng khi phát
+    /// lại file dữ liệu đã qua xử lý.
+    ///
+    /// Lúc đó bộ bám không chạy: quỹ đạo trong file đã là kết quả cuối cùng của
+    /// một phiên trước, tính lại là ra kết quả khác chứ không phải tái hiện.
+    /// Nhưng mọi thứ vẽ quỹ đạo lên màn hình (panel 1, bảng danh sách, popup)
+    /// đều đọc từ đây, nên cách gọn nhất là đổ thẳng vào chính danh sách này và
+    /// để bộ bám đứng yên.
+    ///
+    /// Trạng thái "xoá" (6) rút quỹ đạo khỏi danh sách, đúng như ý nghĩa của nó
+    /// ở phía hệ thống nhận.
+    void applyExternal(const Track &t, qint64 nowMs);
+
     /// Các quỹ đạo vừa chuyển sang trạng thái xoá kể từ lần gọi trước.
     /// Lấy ra là danh sách rỗng đi.
     QVector<Track> takeRemoved();

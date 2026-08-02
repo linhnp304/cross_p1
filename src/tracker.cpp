@@ -208,6 +208,44 @@ bool Tracker::setTop(quint32 id, quint32 top)
     return true;
 }
 
+void Tracker::applyExternal(const Track &in, qint64 nowMs)
+{
+    m_dirty = true;
+
+    if (in.status == TrackStatus::Deleted) {
+        for (int i = 0; i < m_tracks.size(); ++i) {
+            if (m_tracks[i].id == in.id) {
+                m_tracks.removeAt(i);
+                return;
+            }
+        }
+        return;
+    }
+
+    Track *t = find(in.id);
+    if (!t) {
+        if (m_tracks.size() >= m_params.maxTracks)
+            return;
+        m_tracks.push_back(Track{});
+        t = &m_tracks.last();
+    }
+
+    // Giữ lại đúng hai thứ của bản đang có: vết lịch sử (file chỉ ghi vị trí
+    // hiện thời của mỗi lần cập nhật, vết là do bên này gom lại) và ô "Theo dõi"
+    // mà trắc thủ vừa tích trong lúc xem lại.
+    QVector<TrackPoint> history = t->history;
+    const bool watched = t->watched;
+
+    *t = in;
+    t->history = std::move(history);
+    t->watched = watched;
+    t->lastUpdateMs = nowMs;
+    t->lastPlotMs   = nowMs;
+    t->pendingSend  = false;   // phát lại thì gửi thẳng gói gốc, không dựng lại
+
+    pushHistory(*t);
+}
+
 QVector<Track> Tracker::takeRemoved()
 {
     QVector<Track> out;

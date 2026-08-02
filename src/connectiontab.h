@@ -21,9 +21,14 @@ public:
 
     void setParams(const AppParams &p);
 
-    /// Đổi chữ trên nút và khoá bảng khi đang kết nối — bảng chỉ sửa được lúc
-    /// đã dừng, tránh cảnh sửa cổng giữa chừng rồi tưởng là đã có hiệu lực.
+    /// Đổi chữ trên nút và khoá bảng khi đang nhận dữ liệu — bảng cổng nhận chỉ
+    /// sửa được lúc đã dừng, tránh cảnh sửa cổng giữa chừng rồi tưởng là đã có
+    /// hiệu lực.
     void setRunning(bool on);
+
+    /// Tương tự cho nút bật/tắt việc gửi dữ liệu. Bảng cổng gửi thì **không**
+    /// khoá: ô "Gửi" của từng dòng sinh ra là để bật/tắt giữa chừng.
+    void setTxRunning(bool on);
 
     /// Dòng trạng thái dưới bảng (số gói nhận được, lỗi mở cổng...).
     void setStatusText(const QString &text, bool isError = false);
@@ -40,9 +45,13 @@ signals:
     /// mở lại socket theo danh sách mới.
     void txEndpointsChanged(const QVector<NetEndpoint> &tx);
 
-    /// Người dùng bấm nút Kết nối / Dừng kết nối.
+    /// Người dùng bấm nút Bắt đầu / Dừng nhận dữ liệu.
     void connectRequested();
     void disconnectRequested();
+
+    /// Người dùng bấm nút Bắt đầu / Dừng gửi dữ liệu.
+    void sendStartRequested();
+    void sendStopRequested();
 
 private:
     void rebuildTable();
@@ -66,8 +75,9 @@ private:
     void fillTxWidgets(int row, const NetEndpoint &e);
 
     AppParams m_params;
-    bool      m_loading = false;
-    bool      m_running = false;
+    bool      m_loading   = false;
+    bool      m_running   = false;
+    bool      m_txRunning = false;
 
     QTableWidget *m_rx     = nullptr;
     QPushButton  *m_add    = nullptr;
@@ -78,4 +88,5 @@ private:
     QTableWidget *m_tx       = nullptr;
     QPushButton  *m_txAdd    = nullptr;
     QPushButton  *m_txRemove = nullptr;
+    QPushButton  *m_txToggle = nullptr;
 };

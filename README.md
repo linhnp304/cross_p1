@@ -5,7 +5,7 @@ Màn hình trắc thủ ra đa, Qt Widgets đa nền tảng (Ubuntu, Windows, ma
 ## Yêu cầu
 
 - CMake >= 3.16
-- Qt 6 (Widgets, Network)
+- Qt 6 (Widgets, Network, Sql)
 - Trình biên dịch hỗ trợ C++17 (GCC/Clang trên Linux/macOS, MSVC trên Windows)
 
 ## Build
@@ -27,6 +27,9 @@ Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần 
 | `params.json` | Tham số kỹ thuật (Fs, B, Tc, ZFbeat), rẻ quạt xử lý, tham số hai thuật toán xử lý, và danh sách cổng UDP | Người lắp đặt |
 
 Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
+
+Dữ liệu ghi lưu cũng nằm cạnh file chạy, trong thư mục `records/` — xem
+[Ghi lưu và phát lại](#ghi-lưu-và-phát-lại).
 
 > Lúc phát triển, file chạy nằm trong `build/` nên cấu hình cũng ở đó và sẽ mất
 > khi xoá thư mục `build`. Không sao — thiếu file thì phần mềm dùng giá trị mặc định.
@@ -60,9 +63,10 @@ Windows: Windows Defender Firewall → Inbound Rules → New Rule → UDP, cổn
 (tới `192.168.1.255`) nên phần mềm luôn nghe trên mọi địa chỉ rồi lọc lại theo
 card. Để trống hoặc `0.0.0.0` là nghe trên mọi card. Mỗi cổng chỉ khai một dòng.
 
-**3. Đừng chạy bằng `sudo`.** Chạy một lần bằng root là hai file cấu hình đổi
-chủ sang root; sau đó chạy bằng người dùng thường sẽ **không lưu được** thay đổi
-nào nữa mà cũng không báo lỗi. Lỡ rồi thì `sudo chown $USER params.json mx01.json`.
+**3. Đừng chạy bằng `sudo`.** Chạy một lần bằng root là hai file cấu hình và cả
+thư mục `records/` đổi chủ sang root; sau đó chạy bằng người dùng thường sẽ
+**không lưu được** thay đổi nào nữa mà cũng không báo lỗi. Lỡ rồi thì
+`sudo chown -R $USER params.json mx01.json records`.
 
 **4. Đối chiếu tham số** Fs, B, Tc, ZFbeat bên tab Tham số cho khớp đài — ZFbeat
 sai thang thì dữ liệu về đủ nhưng nền tạp vẫn đen kịt.
@@ -87,8 +91,18 @@ không có nghĩa là không bị chặn**.
 
 ## Nhận dữ liệu ra đa
 
-Tab **Kết nối** liệt kê các cổng UDP nhận dữ liệu. Mặc định có sẵn ba dòng
-`UDP-RAW_V` (6001), `UDP-RAW_P` (6002), `UDP-STATUS` (6003) trên `127.0.0.1`.
+Tab **Kết nối** là tab mở sẵn khi chạy. Nó liệt kê các cổng UDP nhận dữ liệu;
+mặc định có sẵn ba dòng `UDP-RAW_V` (6001), `UDP-RAW_P` (6002), `UDP-STATUS`
+(6003) trên `127.0.0.1`.
+
+Hai chiều dữ liệu bật/tắt độc lập, mỗi nút nằm trong chính group của nó:
+
+| Nút | Ở đâu | Tác dụng |
+|---|---|---|
+| *Bắt đầu / Dừng nhận dữ liệu* | group **Cổng UDP nhận dữ liệu** | mở các cổng trong bảng nhận |
+| *Bắt đầu / Dừng gửi dữ liệu* | group **Cổng UDP gửi dữ liệu** | công tắc chung của phía gửi |
+
+Cổng gửi chỉ thực sự mở khi nút chung đang bật **và** dòng đó đã tích ô *Gửi*.
 
 - `LocalIP` là địa chỉ của **card mạng** nối với đài, không phải địa chỉ đem đi
   bind — xem [Lắp đặt lên máy mới](#lắp-đặt-lên-máy-mới). Để trống hoặc
@@ -117,7 +131,9 @@ pixel). Cả đường biên độ lẫn số đọc đều lấy **ô cao nhấ
 số luôn khớp với cái đỉnh đang nhìn thấy chứ không phải một ô lân cận thấp hơn.
 
 Việc đọc socket và giải mã chạy trên một luồng riêng, đẩy vào hai bộ đệm tách
-biệt — một cho hiển thị, một dành sẵn cho chức năng ghi lưu ở giai đoạn sau.
+biệt: một cho hiển thị, một cho [ghi lưu](#ghi-lưu-và-phát-lại). Bộ đệm hiển thị
+đầy thì bỏ bớt lượt quét cũ; bộ đệm ghi lưu là đường riêng nên không thủng vì lý
+do đó.
 
 ### Tab Tham số
 
@@ -201,7 +217,14 @@ chỉnh trong tab **Cài đặt**, nhóm *Điểm dấu và quỹ đạo*.
   lịch sử, kể cả khi thanh trượt đang để ít vết.
 - Kích đúp vào cột **VT / V / H** trong bảng cũng mở popup thông tin. Ba cột kia
   sửa được tại chỗ nên kích đúp ở đó là mở ô nhập.
-- Nút **Danh sách điểm dấu** mở cửa sổ theo dõi từng điểm dấu sinh ra.
+- Nút **Thông tin chi tiết điểm dấu** mở cửa sổ theo dõi từng điểm dấu sinh ra.
+
+Hàng nút dưới cùng của tab **Danh sách** xoá hàng loạt:
+
+| Nút | Tác dụng |
+|---|---|
+| Xoá toàn bộ điểm dấu | xoá lớp điểm dấu đang vẽ trên bản đồ. Không đụng tới cửa sổ *Thông tin chi tiết điểm dấu* — cửa sổ đó là dòng chảy riêng và đã có nút xoá của nó |
+| Xoá toàn bộ quỹ đạo | xoá mọi quỹ đạo, kèm cả đầu tốp / độ cao / phân loại đã nhập tay. Có hỏi lại trước, vì thuật toán không dựng lại được phần nhập tay đó. Mỗi quỹ đạo vẫn đi qua đúng đường xoá bằng tay nên hệ thống nhận đều nhận được `track_status = 6` |
 
 Danh sách tên phân loại mục tiêu nằm trong `mx01.json`, khoá `classifyNames` —
 sửa thẳng trong file, chưa có giao diện quản lý.
@@ -298,6 +321,86 @@ python3 tools/recv_plot_track.py
 thức rồi in ra, kèm kiểm tra Header và Length. Thêm `--raw` để in đủ từng
 trường, `--port` để đổi cổng. Nghe trên `0.0.0.0` nên nhận được cả gói quảng bá.
 
+## Ghi lưu và phát lại
+
+Tab **Ghi lưu** làm hai việc: ghi dữ liệu xuống đĩa, và tái hiện lại một phiên đã
+ghi. Cả hai đều chạy trên **luồng riêng** — đĩa là thứ hay khựng nhất trong cả
+phần mềm, để chung luồng với việc vẽ hay việc vét socket là mất gói.
+
+### Ghi lưu
+
+Hai loại dữ liệu ghi vào **hai file khác nhau**, bật độc lập:
+
+| Ô đánh dấu | Ghi cái gì | Mặc định | Tốc độ |
+|---|---|---|---|
+| Ghi dữ liệu gốc | nguyên datagram `RAW_V` và `RAW_P` | tắt | ~1.7 MB/s |
+| Ghi dữ liệu đã xử lý | góc quét + nền tạp `Video[1024]` (0..255), `PlotTC`, `Track`, và các gói chưa giải mã (trạng thái hệ thống, trạng thái lệnh) | bật | ~0.4 MB/s |
+
+Trong lúc ghi, tab hiện thời gian ghi (`hh:mm:ss`), tổng số bản ghi và số bản ghi
+từng loại. Dòng "bỏ mất … bản ghi vì đĩa không theo kịp" chỉ xuất hiện khi hàng
+đợi 64 MB bị tràn — thấy nó là đĩa quá chậm cho tốc độ đang ghi.
+
+### Phát lại
+
+Chọn loại dữ liệu, chọn phiên trong danh sách (hoặc *Mở tệp ghi lưu khác* để lấy
+file chép từ máy khác sang), rồi bấm *Bắt đầu phát lại*.
+
+| Loại phát lại | Chuyện gì xảy ra |
+|---|---|
+| Dữ liệu gốc | toàn bộ đường xử lý **chạy lại từ đầu** — đổi `ZFbeat`, tham số chùm xung hay tham số quỹ đạo rồi xem lại chính phiên đó để so kết quả |
+| Dữ liệu đã xử lý | bộ bám đứng yên, màn hình hiện **đúng cái đã ghi**; nhẹ hơn nhiều và file nhỏ hơn 4 lần |
+
+Tốc độ tái hiện 1/4x … 8x chỉ áp cho dữ liệu đã xử lý; dữ liệu gốc luôn 1x nên
+hàng chọn tốc độ tự ẩn. Nhịp phát lại bám theo **mốc thời gian ghi trong file**,
+không theo tốc độ đọc đĩa. Máy không kịp xử lý ở tốc độ cao thì nhịp tự chậm lại
+chứ không bỏ bản ghi — chậm nhưng đủ, hơn là nhanh nhưng thủng.
+
+Bấm *Bắt đầu phát lại* sẽ **tắt** nhận dữ liệu, gửi dữ liệu và ghi lưu nếu đang
+bật. Trong lúc phát lại:
+
+- **Gửi dữ liệu** bật lại được. Với dữ liệu đã xử lý thì gói trong file được
+  chuyển tiếp nguyên vẹn, không dựng lại.
+- **Ghi lưu** bật lại được, nhưng chỉ khi đang phát lại *dữ liệu gốc* và chỉ tích
+  ô *Ghi dữ liệu đã xử lý* — đây là cách chạy lại thuật toán với tham số mới rồi
+  ghi kết quả ra một phiên mới.
+- **Nhận dữ liệu** thì không: bấm vào sẽ ra thông báo.
+
+### Tổ chức file ghi lưu
+
+```
+records/index.db                          ← danh mục phiên (SQLite)
+records/2026/08/02/raw_20260802_143012.rec   ← dữ liệu gốc
+records/2026/08/02/dat_20260802_143012.rec   ← dữ liệu đã qua xử lý
+```
+
+Thư mục `records` nằm **cạnh file chạy**, chia theo `yyyy/MM/dd`; tên file là
+thời gian bắt đầu ghi. File tự ngắt sang file mới khi đạt **2 GB** — riêng dữ
+liệu đã xử lý còn ngắt mỗi **2 tiếng**, tuỳ điều kiện nào đến trước.
+
+Mỗi file gồm **64 byte header** (định danh `0x6969cafe`, phân loại, thời gian
+bắt đầu/kết thúc, các bộ đếm) rồi tới phần Data: các bản ghi nối đuôi nhau, mỗi
+bản ghi có 16 byte tiêu đề riêng mang loại, độ dài và mốc thời gian. Chi tiết
+trong [src/recordfile.h](src/recordfile.h).
+
+Phân loại nằm **trong** header chứ không suy từ tên file, nên đổi tên file cũng
+không nhận nhầm loại. Header được ghi lại mỗi 2 giây, nên phiên bị mất điện giữa
+chừng vẫn đọc được; trường hợp xấu nhất thì phần mềm tự đếm lại từ phần Data.
+
+`index.db` chỉ là bản chép sẵn của các header để mở danh sách cho nhanh — đĩa
+luôn là nguồn đúng. Xoá nó đi thì lần chạy sau dựng lại đầy đủ từ chính các file
+`.rec`. Thiếu trình điều khiển `QSQLITE` thì việc ghi và phát lại vẫn chạy, chỉ
+mất danh sách phiên (vẫn dùng được nút *Mở tệp ghi lưu*).
+
+### Soi một file ghi lưu
+
+```bash
+python3 tools/dump_rec.py --scan build/records
+```
+
+Đọc header, duyệt phần Data rồi đối chiếu số bản ghi đếm được với số khai trong
+header — dùng để kiểm tra phía ghi mà không phải mở giao diện. Thêm `--list N`
+để in N bản ghi đầu tiên.
+
 ## Nền bản đồ số
 
 Có hai nguồn nền bản đồ, chọn bằng ComboBox trong tab **Cài đặt**:
@@ -384,6 +487,7 @@ mx01.json                   ← cấu hình hiển thị (tự sinh ở lần ch
 params.json                 ← tham số và danh sách cổng (tự sinh ở lần chạy đầu)
 maps/mt/<kiểu-nền>/         ← tile bản đồ MapTiler, mỗi kiểu một thư mục
 maps/tc/                    ← shapefile của lớp bản đồ TC
+records/yyyy/MM/dd/         ← dữ liệu ghi lưu (tự sinh khi bấm Ghi lưu)
 ```
 
 Dữ liệu bản đồ © MapTiler © OpenStreetMap contributors.
@@ -446,11 +550,13 @@ của MSVC. Giải nén cả thư mục rồi chạy `ar0101.exe` — **không**
 ### Ubuntu
 
 ```bash
-sudo apt install libqt6widgets6 libqt6network6 qt6-qpa-plugins
+sudo apt install libqt6widgets6 libqt6network6 qt6-qpa-plugins libqt6sql6-sqlite
 ```
 
 `qt6-qpa-plugins` là bắt buộc — thiếu nó phần mềm báo *"could not load the Qt
-platform plugin xcb"* rồi thoát.
+platform plugin xcb"* rồi thoát. `libqt6sql6-sqlite` thì không bắt buộc: thiếu
+nó phần mềm vẫn chạy, chỉ mất danh sách phiên ghi lưu — xem
+[Ghi lưu và phát lại](#ghi-lưu-và-phát-lại).
 
 Bản trên CI được build bằng chính Qt trong kho apt của **Ubuntu 24.04**, nên chạy
 được trên Ubuntu 24.04 trở đi. Máy dùng bản cũ hơn thì build lại từ mã

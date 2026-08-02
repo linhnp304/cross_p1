@@ -40,8 +40,16 @@ signals:
     /// Kích đúp vào một ô **không sửa được** — mở popup thông tin quỹ đạo.
     void trackActivated(quint32 id);
 
-    /// Bấm nút "Danh sách điểm dấu".
+    /// Bấm nút "Thông tin chi tiết điểm dấu".
     void plotListRequested();
+
+    /// Xoá sạch lớp điểm dấu đang vẽ trên panel 1. Không đụng tới cửa sổ
+    /// "Thông tin chi tiết điểm dấu" — cửa sổ đó là một dòng chảy riêng và đã
+    /// có nút xoá của nó.
+    void clearPlotsRequested();
+
+    /// Xoá sạch danh sách quỹ đạo.
+    void clearTracksRequested();
 
 private:
     /// Dựng lại toàn bộ dòng. Chỉ gọi khi tập quỹ đạo đổi, vì nó tạo lại cả

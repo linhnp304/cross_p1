@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLineEdit>
@@ -67,13 +68,32 @@ TrackListTab::TrackListTab(QWidget *parent)
     m_table->horizontalHeader()->setStretchLastSection(true);
     root->addWidget(m_table, 1);
 
-    auto *plotBtn = new QPushButton(tr("Danh sách điểm dấu"), this);
-    auto *row = new QHBoxLayout;
-    row->addWidget(plotBtn, 0);
-    row->addStretch(1);
-    root->addLayout(row);
+    auto *plotBtn        = new QPushButton(tr("Thông tin chi tiết điểm dấu"), this);
+    auto *clearPlotsBtn  = new QPushButton(tr("Xoá toàn bộ điểm dấu"), this);
+    auto *clearTracksBtn = new QPushButton(tr("Xoá toàn bộ quỹ đạo"), this);
+    clearPlotsBtn->setToolTip(tr("Xoá lớp điểm dấu đang vẽ trên bản đồ. Điểm dấu "
+                                 "mới vẫn hiện ra bình thường ngay sau đó."));
+    clearTracksBtn->setToolTip(tr("Xoá mọi quỹ đạo đang có, kèm cả số đầu tốp, "
+                                  "độ cao và phân loại đã nhập tay. Hệ thống "
+                                  "nhận cũng được báo trạng thái xoá."));
+
+    // Ba nút xếp dọc trong **một cột** của lưới: bề rộng cột bằng nút có chữ
+    // dài nhất, và cả ba tự giãn cho đầy cột nên luôn bằng nhau — không phải đo
+    // chữ bằng tay, và đổi nhãn hay đổi ngôn ngữ vẫn còn đúng. Cột thứ hai để
+    // trống và nhận hết phần giãn, giữ cho nút không kéo dài hết bề ngang tab.
+    auto *btnGrid = new QGridLayout;
+    btnGrid->setContentsMargins(0, 0, 0, 0);
+    btnGrid->addWidget(plotBtn,        0, 0);
+    btnGrid->addWidget(clearPlotsBtn,  1, 0);
+    btnGrid->addWidget(clearTracksBtn, 2, 0);
+    btnGrid->setColumnStretch(1, 1);
+    root->addLayout(btnGrid);
 
     connect(plotBtn, &QPushButton::clicked, this, &TrackListTab::plotListRequested);
+    connect(clearPlotsBtn, &QPushButton::clicked,
+            this, &TrackListTab::clearPlotsRequested);
+    connect(clearTracksBtn, &QPushButton::clicked,
+            this, &TrackListTab::clearTracksRequested);
     connect(m_table, &QTableWidget::itemChanged, this, &TrackListTab::onItemChanged);
 
     // Chỉ kích đúp vào cột **không sửa được** mới mở popup thông tin: cột sửa

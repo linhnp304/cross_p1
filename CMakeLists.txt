@@ -19,8 +19,11 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
-find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets Network)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
+# Sql chỉ dùng cho danh mục phiên ghi lưu (SQLite). Thiếu trình điều khiển
+# QSQLITE lúc chạy thì phần mềm vẫn ghi và phát lại được bằng file .rec, chỉ mất
+# danh sách phiên — xem RecordIndex::open().
+find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets Network Sql)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network Sql)
 
 qt_standard_project_setup()
 
@@ -51,6 +54,8 @@ qt_add_executable(${PROJECT_NAME}
     src/packetio.h
     src/paramstab.cpp
     src/paramstab.h
+    src/player.cpp
+    src/player.h
     src/plotlistwindow.cpp
     src/plotlistwindow.h
     src/plotstore.h
@@ -63,6 +68,14 @@ qt_add_executable(${PROJECT_NAME}
     src/radarview.cpp
     src/radarview.h
     src/rawpacket.h
+    src/recorder.cpp
+    src/recorder.h
+    src/recordfile.cpp
+    src/recordfile.h
+    src/recordindex.cpp
+    src/recordindex.h
+    src/recordtab.cpp
+    src/recordtab.h
     src/settingstab.cpp
     src/settingstab.h
     src/shapefile.cpp
@@ -86,7 +99,7 @@ qt_add_executable(${PROJECT_NAME}
     src/vectormap.h
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets Qt6::Network)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets Qt6::Network Qt6::Sql)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     WIN32_EXECUTABLE ON

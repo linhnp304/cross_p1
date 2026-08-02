@@ -107,10 +107,14 @@ ConnectionTab::ConnectionTab(QWidget *parent)
 
     m_add    = new QPushButton(tr("Thêm dòng"), rxBox);
     m_remove = new QPushButton(tr("Xoá dòng"), rxBox);
+    // Nút bật/tắt nằm trong chính group của nó: hai chiều dữ liệu bật tắt độc
+    // lập với nhau, để một nút chung ở ngoài thì không nhìn ra điều đó.
+    m_toggle = new QPushButton(tr("Bắt đầu nhận dữ liệu"), rxBox);
     auto *btnRow = new QHBoxLayout;
     btnRow->addWidget(m_add);
     btnRow->addWidget(m_remove);
     btnRow->addStretch(1);
+    btnRow->addWidget(m_toggle);
     rxLay->addLayout(btnRow);
 
     // --- Bảng cổng gửi ----------------------------------------------------
@@ -132,9 +136,10 @@ ConnectionTab::ConnectionTab(QWidget *parent)
     m_tx->setMinimumHeight(110);
     m_tx->setToolTip(tr("Mỗi khi có điểm dấu mới hoặc quỹ đạo được cập nhật thì "
                         "gói tin được gửi tới mọi dòng đang bật ô Gửi và đúng "
-                        "loại dữ liệu.\n"
-                        "LocalIP ở đây là card mạng **đi ra**; LocalPort để 0 "
-                        "là để hệ điều hành tự chọn cổng nguồn.\n"
+                        "loại dữ liệu — với điều kiện nút \"Bắt đầu gửi dữ "
+                        "liệu\" bên dưới đang bật.\n"
+                        "LocalIP ở đây là card mạng đi ra; LocalPort để 0 là "
+                        "để hệ điều hành tự chọn cổng nguồn.\n"
                         "Broadcast: gửi tới địa chỉ quảng bá của dải chứa "
                         "RemoteIP thay vì gửi thẳng cho một máy.\n"
                         "Ô Gửi luôn bắt đầu ở trạng thái tắt mỗi lần chạy."));
@@ -142,21 +147,23 @@ ConnectionTab::ConnectionTab(QWidget *parent)
 
     m_txAdd    = new QPushButton(tr("Thêm dòng"), txBox);
     m_txRemove = new QPushButton(tr("Xoá dòng"), txBox);
+    m_txToggle = new QPushButton(tr("Bắt đầu gửi dữ liệu"), txBox);
+    m_txToggle->setToolTip(tr("Cổng chỉ thực sự mở khi nút này bật và dòng đó "
+                              "cũng đã đánh dấu ô Gửi."));
     auto *txBtnRow = new QHBoxLayout;
     txBtnRow->addWidget(m_txAdd);
     txBtnRow->addWidget(m_txRemove);
     txBtnRow->addStretch(1);
+    txBtnRow->addWidget(m_txToggle);
     txLay->addLayout(txBtnRow);
 
-    // --- Nút kết nối ------------------------------------------------------
-    m_toggle = new QPushButton(tr("Kết nối"), this);
+    // --- Dòng trạng thái --------------------------------------------------
     m_status = new QLabel(this);
     m_status->setWordWrap(true);
     m_status->setStyleSheet(QStringLiteral("color: #7fa8c9;"));
 
     root->addWidget(rxBox);
     root->addWidget(txBox);
-    root->addWidget(m_toggle, 0, Qt::AlignLeft);
     root->addWidget(m_status);
     root->addStretch(1);
 
@@ -174,6 +181,12 @@ ConnectionTab::ConnectionTab(QWidget *parent)
         else
             emit connectRequested();
     });
+    connect(m_txToggle, &QPushButton::clicked, this, [this] {
+        if (m_txRunning)
+            emit sendStopRequested();
+        else
+            emit sendStartRequested();
+    });
 }
 
 void ConnectionTab::setParams(const AppParams &p)
@@ -190,7 +203,7 @@ void ConnectionTab::setParams(const AppParams &p)
 void ConnectionTab::setRunning(bool on)
 {
     m_running = on;
-    m_toggle->setText(on ? tr("Dừng kết nối") : tr("Kết nối"));
+    m_toggle->setText(on ? tr("Dừng nhận dữ liệu") : tr("Bắt đầu nhận dữ liệu"));
 
     // Sửa cổng **nhận** lúc đang chạy chỉ gây hiểu nhầm là đã có hiệu lực.
     // Bảng gửi thì ngược lại: ô "Gửi" sinh ra là để bật/tắt giữa chừng, và mọi
@@ -198,6 +211,12 @@ void ConnectionTab::setRunning(bool on)
     m_rx->setEnabled(!on);
     m_add->setEnabled(!on);
     m_remove->setEnabled(!on);
+}
+
+void ConnectionTab::setTxRunning(bool on)
+{
+    m_txRunning = on;
+    m_txToggle->setText(on ? tr("Dừng gửi dữ liệu") : tr("Bắt đầu gửi dữ liệu"));
 }
 
 void ConnectionTab::setStatusText(const QString &text, bool isError)

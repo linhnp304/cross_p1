@@ -96,6 +96,17 @@ QSlider::handle:vertical {
 
 QSplitter::handle { background: #1a232c; }
 QSplitter::handle:hover { background: #2f6d9e; }
+
+/* Chú giải nhỏ hơn chữ thường một nấc: nó là chú thích, không phải nội dung
+   chính, mà mấy chú giải trong phần mềm này lại dài vài dòng — để cùng cỡ chữ
+   thì cái hộp vàng che mất đúng chỗ người dùng đang định bấm. */
+QToolTip {
+    background: #131b24;
+    color: #c3ccd6;
+    border: 1px solid #2f4358;
+    padding: 3px 5px;
+    font-size: 11px;
+}
 )");
 }
 
