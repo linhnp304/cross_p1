@@ -9,7 +9,7 @@ khai trong header. Dùng để kiểm chứng phía ghi mà không phải mở g
     python3 tools/dump_rec.py --scan build/records # duyệt cả thư mục
 
 Header đúng theo mô tả giai đoạn 5; hai ô cuối (số bản ghi nền tạp, phiên bản
-định dạng) lấy từ phần dự phòng — xem src/recordfile.h.
+định dạng) lấy từ phần dự phòng — xem src/record/recordfile.h.
 """
 
 import argparse

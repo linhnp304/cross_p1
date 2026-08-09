@@ -1,0 +1,13 @@
+# Kịch bản mẫu: sang tab "Tham số", mở cửa sổ "Tham số quỹ đạo", hạ vận tốc lớn
+# nhất xuống 20 m/s và bật vẽ cửa sổ dự đoán, rồi chụp lại.
+
+tab "Tham số"
+wait 300
+dump
+
+click "Tham số quỹ đạo..."
+wait 500
+windows
+dump
+
+shot /tmp/thamso-quydao.png "Tham số quỹ đạo"

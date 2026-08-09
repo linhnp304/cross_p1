@@ -1,8 +1,8 @@
 #include <QApplication>
 
-#include "appinfo.h"
-#include "mainwindow.h"
-#include "theme.h"
+#include "app/appinfo.h"
+#include "app/mainwindow.h"
+#include "ui/theme.h"
 
 int main(int argc, char *argv[])
 {

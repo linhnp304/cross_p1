@@ -1,0 +1,41 @@
+# Kiểm tra bằng mắt phần bám quỹ đạo của giai đoạn 8.
+#
+# Chạy kèm công cụ tạo giả dữ liệu, ở một cửa sổ lệnh khác:
+#     python3 tools/fake_one_target.py
+#
+# Đặt tham số cho hợp đài thật (Rmax ~1218 m) rồi mở nhận dữ liệu, chờ đủ vài
+# vòng quét và chụp lại từng chặng: chưa khởi tạo -> khởi tạo -> đang bám.
+
+# --- đặt tham số quỹ đạo ---
+tab "Tham số"
+wait 300
+click "Tham số quỹ đạo..."
+wait 500
+set "Lớn nhất (m/s)" 20
+check "Vẽ cửa sổ dự đoán" on
+click "Áp dụng"
+wait 300
+shot /tmp/g8-1-thamso.png "Tham số quỹ đạo"
+
+# --- bật nhận dữ liệu ---
+tab "Kết nối"
+wait 300
+click "Bắt đầu nhận dữ liệu"
+
+# Vòng quét 10 giây. Chụp sau vòng thứ nhất: phải thấy điểm dấu mà CHƯA thấy
+# quỹ đạo nào — đúng chỗ giai đoạn 8 sửa.
+wait 14000
+shot /tmp/g8-2-vong1.png
+tab "Danh sách"
+wait 300
+table .QTableWidget
+
+# Sau vòng thứ hai: quỹ đạo phải hiện ra, trạng thái "khởi tạo".
+wait 11000
+shot /tmp/g8-3-vong2.png
+table .QTableWidget
+
+# Sau vài vòng nữa: trạng thái "đang bám", có vết lịch sử.
+wait 22000
+shot /tmp/g8-4-vong4.png
+table .QTableWidget

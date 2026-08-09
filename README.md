@@ -17,14 +17,56 @@ cmake --build build --parallel
 
 Chạy binary sinh ra trong thư mục `build/` (ví dụ `build/ar0101` trên Linux/macOS, `build/Release/ar0101.exe` trên Windows).
 
+### Bố cục mã nguồn
+
+Mỗi thư mục con của `src/` là một tầng của phần mềm:
+
+| Thư mục | Chứa gì |
+|---|---|
+| `app/` | Khởi tạo, cửa sổ chính, hai file cấu hình (`AppSettings`, `AppParams`) |
+| `net/` | Giao thức gói tin (`rawpacket`, `packetio`, `cmdproto`), luồng nhận UDP, phía gửi |
+| `proc/` | Tách tâm chùm xung và bám quỹ đạo — thuần thuật toán, không đụng Qt Widgets |
+| `record/` | Ghi lưu và phát lại: định dạng `.rec`, luồng ghi đĩa, danh mục phiên |
+| `maps/` | Nền bản đồ số: tile, shapefile, chiếu toạ độ, tính phương vị / cự ly |
+| `ui/` | Các tab, cửa sổ con và phần vẽ |
+
+Include viết đủ đường dẫn (`#include "net/udplink.h"`), nên nhìn một dòng
+include là biết thứ đang dùng thuộc tầng nào. Thư mục `proc/` cố ý không phụ
+thuộc gì vào `ui/`: hai thuật toán nặng nhất vì thế biên dịch và chạy thử được
+mà không cần dựng cả giao diện.
+
+### Điều khiển giao diện bằng kịch bản
+
+`tests/guidrv.cpp` dựng đúng cửa sổ chính của phần mềm rồi bấm nút, gõ số và
+chụp màn hình theo một file kịch bản — để kiểm tra được phần **nhìn thấy** mà
+không cần ai ngồi bấm chuột, và chạy được cả trên máy không có màn hình.
+
+```bash
+cmake --build build --target ar0101-guidrv
+cd build && ./ar0101-guidrv ../tests/scripts/bam-quy-dao.txt
+```
+
+Đích này **không** nằm trong bản dựng bình thường (`EXCLUDE_FROM_ALL`), phải gọi
+đúng tên mới dựng — nên máy dựng tự động không cần tới `Qt6::Test`. Chạy không
+tham số thì in ra bảng lệnh của kịch bản. Mặc định chạy ngoài màn hình; đặt
+`QT_QPA_PLATFORM=wayland` (hay `xcb`) nếu muốn xem tận mắt.
+
+Kịch bản mẫu nằm ở `tests/scripts/`. Lưu ý `bam-quy-dao.txt` có bấm **Áp dụng**
+trong cửa sổ tham số, tức là nó **ghi đè `build/params.json`** — sao lưu file đó
+trước nếu đang giữ một bộ tham số cần dùng.
+
 ## File cấu hình
 
 Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần chạy đầu:
 
 | File | Chứa gì | Của ai |
 |---|---|---|
-| `mx01.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video, màu các đối tượng đồ hoạ, danh sách phân loại mục tiêu | Trắc thủ |
-| `params.json` | Tham số kỹ thuật (Fs, B, Tc, ZFbeat), rẻ quạt xử lý, tham số hai thuật toán xử lý, và danh sách cổng UDP | Người lắp đặt |
+| `settings.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video, kích thước và màu các đối tượng đồ hoạ, danh sách phân loại mục tiêu | Trắc thủ |
+| `params.json` | Tham số kỹ thuật (Fs, B, Tc, Multi_V), bảng rẻ quạt xử lý, bảng vùng cấm khởi tạo, tham số hai thuật toán xử lý, giá trị các [lệnh điều khiển](#lệnh-điều-khiển), và danh sách cổng UDP | Người lắp đặt |
+
+> File cấu hình hiển thị trước đây tên là `mx01.json`. Còn file cũ mà chưa có
+> `settings.json` thì phần mềm đọc file cũ rồi ghi sang tên mới ở lần lưu kế
+> tiếp — đổi tên file không làm mất cài đặt. File cũ để nguyên làm bản lùi.
 
 Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
 
@@ -66,10 +108,12 @@ card. Để trống hoặc `0.0.0.0` là nghe trên mọi card. Mỗi cổng ch�
 **3. Đừng chạy bằng `sudo`.** Chạy một lần bằng root là hai file cấu hình và cả
 thư mục `records/` đổi chủ sang root; sau đó chạy bằng người dùng thường sẽ
 **không lưu được** thay đổi nào nữa mà cũng không báo lỗi. Lỡ rồi thì
-`sudo chown -R $USER params.json mx01.json records`.
+`sudo chown -R $USER params.json settings.json records`.
 
-**4. Đối chiếu tham số** Fs, B, Tc, ZFbeat bên tab Tham số cho khớp đài — ZFbeat
-sai thang thì dữ liệu về đủ nhưng nền tạp vẫn đen kịt.
+**4. Đối chiếu tham số cho khớp đài.** `Fs`, `B`, `Tc` bên tab **Tham số**;
+`DataSend`, `ZFbeat`, `GainU` bên tab **Điều khiển**. Sai `DataSend` thì nền tạp
+hoặc đen kịt hoặc trắng xoá dù dữ liệu về đủ — xem
+[Quy biên độ về thang 0..255](#quy-biên-độ-về-thang-0255).
 
 ### Không thấy dữ liệu thì xem ở đâu
 
@@ -92,8 +136,15 @@ không có nghĩa là không bị chặn**.
 ## Nhận dữ liệu ra đa
 
 Tab **Kết nối** là tab mở sẵn khi chạy. Nó liệt kê các cổng UDP nhận dữ liệu;
-mặc định có sẵn ba dòng `UDP-RAW_V` (6001), `UDP-RAW_P` (6002), `UDP-STATUS`
-(6003) trên `127.0.0.1`.
+mặc định có sẵn ba dòng `RAW_V` (6001), `RAW_P` (6002), `Status` (6003) trên
+`127.0.0.1`.
+
+Cột **Tên** là ComboBox với bốn loại dữ liệu — `RAW_V`, `RAW_P`, `Status`,
+`Plot` — nhưng vẫn gõ được tên khác. Dòng `Plot` (điểm dấu tâm chùm do hệ thống
+khác tính sẵn) **không** được tạo sẵn; bấm *Thêm dòng* là ra một dòng `Plot` ở
+cổng 6004. Gói `PlotTC` nhận trên dòng đó đi thẳng vào bộ bám quỹ đạo, bỏ qua
+thuật toán tách chùm xung — đây là đường dùng để
+[kiểm tra riêng bộ lọc Kalman](#công-cụ-tạo-giả-dữ-liệu).
 
 Hai chiều dữ liệu bật/tắt độc lập, mỗi nút nằm trong chính group của nó:
 
@@ -117,14 +168,37 @@ Cổng gửi chỉ thực sự mở khi nút chung đang bật **và** dòng đ�
 Dữ liệu `RAW_V` (1024 điểm biên độ mỗi gói, ~400 gói/giây) hiện ở hai nơi: nền
 tạp trên bản đồ (panel 1) và đường biên độ trên cửa sổ biên độ (panel 2.2).
 
+#### Quy biên độ về thang 0..255
+
+Có **hai công thức**, chọn theo trường `DataSend` của lệnh `CMD_COMMON` (tab
+[Điều khiển](#lệnh-điều-khiển)):
+
+| `DataSend` | Công thức |
+|---|---|
+| 1 — Fbeat | `Video[i] = Data_V[i] / ZFbeat * 256 * Multi_V` |
+| 2 — Doppler | `Video[i] = (Data_V[i] >> 16) / GainU * 256 * Multi_V` |
+
+`ZFbeat` nằm trong `CMD_DSP_R`, `GainU` nằm trong `CMD_DSP_S` — cả hai nhập ở
+tab **Điều khiển**, không phải tab Tham số. `Multi_V` (*Hệ số nhân video*) là
+tham số của riêng phần mềm, nằm ở tab **Tham số**. Kết quả vượt 255 thì bão hoà;
+hai số chia được chặn `> 0`. `DataSend` = 0 hoặc 3 thì dùng công thức của Fbeat.
+
+> Đài thật đang phát ở chế độ Doppler đóng biên độ vào **bit 16..31**. Trước
+> giai đoạn 9 phần mềm chỉ có công thức Fbeat nên mọi bản ghi của đài thật đều
+> bão hoà trắng màn hình; chọn đúng `DataSend = 2` là hết.
+
 Đọc số tại một điểm cụ thể:
 
 - **Trên bản đồ** — thanh trạng thái hiện kinh/vĩ độ con trỏ, kèm **phương vị và
   cự ly** tính từ tâm đài, làm tròn tới 0.001° và 1 m.
 - **Trên cửa sổ biên độ** — rê chuột vào là hiện biên độ và cự ly của ô đang
   trỏ, kèm vạch chỉ vị trí. Cự ly theo đúng công thức của cự ly tối đa, thay số
-  ô vào chỗ 1024, rút gọn còn **R = Rmax·n/1024**; ô cuối cùng vì thế đúng bằng
-  cự ly tối đa. Panel hẹp thì hai nhãn `0` và cự ly tối đa tự ẩn để nhường chỗ.
+  ô vào chỗ 1024, rút gọn còn **R = Rmax·(D+1)/1024** với `D` đánh số từ 0; ô
+  cuối cùng (`D = 1023`) vì thế đúng bằng cự ly tối đa. Panel hẹp thì hai nhãn
+  `0` và cự ly tối đa tự ẩn để nhường chỗ.
+
+Cùng phép quy đổi đó dùng cho ô cự ly của điểm dấu — cả điểm dấu đơn xung lẫn
+điểm dấu tâm chùm, để chấm đơn xung nằm đúng trên điểm dấu mà nó sinh ra.
 
 Một cột màn hình thường gộp vài ô cự ly (1024 ô mà panel chỉ rộng vài trăm
 pixel). Cả đường biên độ lẫn số đọc đều lấy **ô cao nhất** trong nhóm, nên con
@@ -145,13 +219,46 @@ Với giá trị mặc định Fs=1, B=154, Tc=2500 thì Rmax = 1217.53 m → **
 - Bật **Tự động nhận từ trạng thái lệnh điều khiển** → nút *Áp dụng* bị khoá
   (mọi thay đổi vào thẳng) và ô tự cập nhật thang cự ly bị bật cố định.
 
+Group **Tham số kỹ thuật** có ba ô `Fs`, `B`, `Tc` và ô **Hệ số nhân video —
+Multi_V** (số thực, mặc định 1.0). `Multi_V` chỉ chỉnh độ sáng nền tạp phía phần
+mềm, không đụng gì tới đài; có hiệu lực ngay, không chờ *Áp dụng*.
+
+> Ô `ZFbeat` **không còn ở đây** từ giai đoạn 9: nó là một trường của lệnh
+> `CMD_DSP_R`, nhập ở tab [Điều khiển](#lệnh-điều-khiển). File `params.json` của
+> bản cũ được tự chuyển đổi sang chỗ mới lúc nạp, không mất giá trị đã căn.
+
 Hai nút ở cuối tab mở hai cửa sổ tham số của phần xử lý — xem
 [Điểm dấu và quỹ đạo](#điểm-dấu-và-quỹ-đạo).
 
-**Xử lý theo rẻ quạt** giới hạn phần dữ liệu `RAW_P` được đưa vào xử lý. Góc
-tính theo chiều kim đồng hồ từ góc bắt đầu tới góc kết thúc, nên *bắt đầu > kết
-thúc* là rẻ quạt vắt qua hướng bắc chứ không phải nhập ngược. Có hiệu lực ngay,
-không cần bấm *Áp dụng* (nút đó thuộc về nhóm thang cự ly).
+**Xử lý theo rẻ quạt** giới hạn phần dữ liệu `RAW_P` được đưa vào xử lý. Bảng
+nhận nhiều rẻ quạt, mỗi dòng một góc bắt đầu và một góc kết thúc (làm tròn
+0.1°). Góc tính theo chiều kim đồng hồ từ góc bắt đầu tới góc kết thúc, nên
+*bắt đầu > kết thúc* là rẻ quạt vắt qua hướng bắc chứ không phải nhập ngược.
+
+- Không dòng nào tích ô *Áp dụng* → xử lý cả vòng tròn. Có dòng bật thì chỉ xử
+  lý phần nằm trong các dòng đó.
+- Hai rẻ quạt chồng lấn nhau thì các dòng phạm lỗi bị tô đỏ và **cả bảng không
+  có hiệu lực** cho tới khi sửa xong. Kiểm tra trên mọi dòng, kể cả dòng đang
+  tắt: hai rẻ quạt lồng nhau là cấu hình khó hiểu dù hôm nay dòng nào đang tắt.
+  Hai rẻ quạt chạm nhau đúng một mép (30–90 và 90–120) **không** tính là chồng.
+
+**Vùng cấm khởi tạo** là các mảnh hình quạt mà bên trong đó **không mở quỹ đạo
+mới**. Quỹ đạo đã có bay qua vùng thì vẫn được bám tiếp bình thường — cùng tinh
+thần với hai [chốt an toàn](#hai-chốt-an-toàn-chỉ-có-trong-paramsjson). Mỗi dòng
+gồm phương vị đầu / cuối (0.1°) và cự ly đầu / cuối (0.1 m); mặc định bảng rỗng.
+
+Thay vì gõ số, bấm **Vẽ trên bản đồ** rồi bấm chuột trái hai lần trên panel 1 để
+khoanh vùng: con trỏ đổi thành dấu thập kèm khung nhỏ, khung xem trước đi theo
+chuột, và hai điểm bấm được quy ra phương vị / cự ly rồi thêm thành một dòng
+mới. Quét ngược hay xuôi chiều kim đồng hồ, từ trong ra hay từ ngoài vào đều
+được — giá trị luôn được sắp lại thành xuôi chiều kim đồng hồ và cự ly tăng dần.
+Bấm chuột phải hoặc `Esc` để huỷ.
+
+Ô **Hiện vùng cấm khởi tạo** vẽ các vùng đang bật lên bản đồ. Vùng đang khoanh
+dở thì luôn hiện, kể cả khi ô đó đang tắt.
+
+Cả hai bảng có hiệu lực ngay, không cần bấm *Áp dụng* (nút đó thuộc về nhóm
+thang cự ly).
 
 ### Công cụ tạo giả dữ liệu
 
@@ -166,6 +273,59 @@ vị** — điều kiện bắt buộc để thuật toán tâm chùm và bộ b
 Nhịp 2.5 ms, 6 vòng/phút, ba mục tiêu: bay vòng tròn ~2 m/s, bay thẳng từ tâm
 đài ra ~5.5 m/s, và bay xuyên tâm đài ~15.5 m/s. Xem `--help` để đổi cổng, tốc
 độ vòng quét hay tỉ lệ mất xung.
+
+Muốn thử **riêng bộ lọc Kalman**, không lẫn với thuật toán tách chùm xung:
+
+```bash
+python3 tools/fake_plottc.py
+```
+
+Công cụ này tính sẵn điểm dấu rồi gửi thẳng dưới dạng gói `PlotTC` tới cổng
+6004, đồng thời vẫn phát `RAW_V` (cổng 6001) để làm nền tạp và để đồng bộ đường
+quét — phương vị ăng-ten trong `RAW_V` chính là thứ đẩy nhịp chốt sổ của bộ bám.
+Không có dòng đó thì bộ bám phải tự quay đường quét bằng đồng hồ theo chu kỳ đo
+được lần cuối, vẫn chạy nhưng nhịp ngoại suy không còn khớp với thực tế.
+**Không** phát `RAW_P`. Ba mục tiêu, mỗi mục tiêu một chu kỳ có/mất tiêu riêng
+để thấy rõ tiêu chuẩn khởi tạo, ngoại suy và xoá quỹ đạo:
+
+| Mục tiêu | Chuyển động | Chu kỳ theo vòng quét |
+|---|---|---|
+| 1 | vòng tròn xuôi kim đồng hồ, từ 90° / 250 m, 2 m/s | 5 có, 1 mất, 2 có, 2 mất, 3 có, 5 mất |
+| 2 | thẳng từ tâm đài ra, 135°, từ 75 m, 1.5 m/s | 1 có, 1 mất |
+| 3 | thẳng vào tâm đài, 295°, 1100 m → 75 m rồi lặp lại, 1.5 m/s | 1 có, 2 mất, 5 có, 4 mất |
+
+Phải thêm dòng `Plot` (cổng 6004) trong tab **Kết nối** một lần thì mới nhận
+được — dòng đó không có sẵn.
+
+Muốn một **bài đo** thay vì một cảnh mô phỏng — chuyển động biết trước từng mét,
+chu kỳ có/mất tiêu cố định, không nhiễu:
+
+```bash
+python3 tools/fake_one_target.py
+```
+
+Phát `RAW_V` và `RAW_P` đồng bộ như `fake_radar.py`, nhưng chỉ **một** mục tiêu:
+bay vòng tròn quanh tâm đài xuôi kim đồng hồ, 2.5 m/s, bắt đầu ở phương vị 30° /
+cự ly 500 m, tốc độ vòng quét tiêu chuẩn 6 vòng/phút. Bay vòng tròn quanh chính
+tâm đài nên **cự ly là hằng số 500 m** suốt phiên — mọi thay đổi cự ly nhìn thấy
+trên màn hình đều là sai số của thuật toán chứ không phải của mục tiêu.
+
+Chu kỳ có tiêu / mất tiêu lặp lại sau 22 vòng quét:
+
+| Vòng | 1 | 2 | 3 – 8 | 9 – 12 | 13 – 18 | 19 – 22 |
+|---|---|---|---|---|---|---|
+| | có | mất | có (6) | mất (4) | có (6) | mất (4) |
+
+Vòng "mất tiêu" là mất hẳn: không plot trong `RAW_P` và cũng không có vệt sáng
+trong `RAW_V`, nhìn màn hình là thấy đúng lúc bộ bám chuyển sang ngoại suy. Thêm
+`--video-always` nếu muốn giữ vệt nền tạp lại. Mặc định **không** rắc nhiễu và
+**không** làm rơi xung giữa chùm; `--jitter-cell` và `--dropout` bật lại hai thứ
+đó khi cần thử độ bền của thuật toán.
+
+Cự ly quy ra ô theo `--rmax` (mặc định 1218 m, ứng với Fs=1, B=154, Tc=2500).
+Tham số bên tab **Tham số** cho ra Rmax khác thì phải truyền `--rmax` cho khớp,
+nếu không cự ly hiện trên màn hình sẽ không phải 500 m. Bật ô **Hiện điểm dấu
+đơn xung** trong tab Cài đặt để nhìn thẳng vào đầu vào của thuật toán tâm chùm.
 
 Chỉ cần nền tạp thì vẫn dùng công cụ cũ:
 
@@ -185,17 +345,48 @@ Dữ liệu `RAW_P` mang các điểm dấu đơn xung. Đường xử lý gồm
    dopler thành một "chùm", rồi lấy tâm chùm làm **điểm dấu** (PlotTC). Ô cự ly
    quy ra mét theo đúng công thức của cự ly tối đa: **R = Rmax·n/1024**.
 2. **Bám quỹ đạo** — bộ lọc Kalman vận tốc không đổi trong hệ Đề-các cục bộ
-   quanh tâm đài. Mỗi vòng quay ăng-ten là một nhịp: điểm dấu tới thì ghép vào
-   quỹ đạo đang có, hết vòng thì quỹ đạo nào không được ghép sẽ ngoại suy, ngoại
-   suy quá số vòng cho phép thì xoá.
+   quanh tâm đài. Mỗi vòng quay ăng-ten là một nhịp, nhưng **mỗi quỹ đạo một
+   nhịp riêng**: quỹ đạo được chốt sổ ngay khi đường quét đi hết cửa sổ dự đoán
+   của nó, không phải chờ ăng-ten về hướng bắc. Không được ghép điểm dấu thì
+   ngoại suy ngay lúc đó, ngoại suy quá số vòng cho phép thì xoá.
+
+Vòng đời một quỹ đạo, theo trường `track_status` của gói tin:
+
+| Bước | Trạng thái | Trên màn hình |
+| --- | --- | --- |
+| Vòng đầu có điểm dấu | *(chưa có)* — mới chỉ là một cửa sổ dự đoán mở cực đại đang chờ | không vẽ gì, không gửi đi đâu |
+| Đủ tiêu chuẩn khởi tạo (2/2, 3/3 hay 2/3 vòng) | 1 — khởi tạo | bắt đầu hiện hình tam giác |
+| Vòng sau, có điểm dấu rơi vào cửa sổ | 3 — đang bám | tam giác **tô đặc** |
+| Vòng sau, không có điểm dấu | 5 — ngoại suy | tam giác **rỗng ruột**, dịch tới vị trí dự đoán |
+| Ngoại suy quá số vòng cho phép | 6 — xoá | gửi trạng thái xoá rồi biến mất |
+
+Chưa đủ tiêu chuẩn khởi tạo thì quỹ đạo **chưa tồn tại** với phần còn lại của
+phần mềm: không vẽ, không có trong bảng danh sách, không gửi ra ngoài. Bật ô
+*Vẽ cửa sổ dự đoán* trong cửa sổ **Tham số quỹ đạo** thì thấy được các cửa sổ
+đang chờ đó, vẽ bằng **nét chấm** để phân biệt với nét đứt của quỹ đạo thật.
+
+Kích thước cửa sổ dự đoán = *Cửa sổ cự ly cơ sở* + *Hệ số nhân độ lệch chuẩn* ×
+độ bất định của bộ lọc sau khi dự đoán tới vòng sau. Nó **tự thu nhỏ** khi quỹ
+đạo bám đều và **tự nở ra** khi ngoại suy hoặc khi mục tiêu cơ động. *Cửa sổ cự
+ly tối đa* chỉ chặn trường hợp đang bám đều; ba trường hợp còn lại — vòng đầu
+tiên, đang ngoại suy, vừa phát hiện cơ động — cửa sổ chỉ bị chặn bởi quãng đường
+xa nhất mục tiêu có thể đi được, tức *Lớn nhất (m/s)* × thời gian trôi qua.
+
+> [!IMPORTANT]
+> Vì vậy ô **Lớn nhất (m/s)** phải khai sát với loại mục tiêu đang quan tâm.
+> Với đài Rmax ≈ 1218 m và vòng quét 10 giây, để mặc định 120 m/s thì cửa sổ
+> vòng đầu tiên rộng 1240 m — trùm cả vùng phủ, và mọi điểm dấu đều rơi vào quỹ
+> đạo đầu tiên gặp được. Để 20 m/s thì cửa sổ đó còn 240 m.
 
 Hình vẽ trên panel 1:
 
 | Đối tượng | Hình | Ghi chú |
 | --- | --- | --- |
 | Điểm dấu | hình vuông nhỏ | luôn nằm **trên** lớp quỹ đạo; tự xoá sau 8 giây |
+| Điểm dấu đơn xung | chấm tím rất nhỏ | lớp **dưới cùng**; mặc định tắt, xem bên dưới |
 | Quỹ đạo | tam giác cân, quay theo hướng chuyển động | để rỗng ruột khi đang ngoại suy |
-| Vết lịch sử | hình tròn nhỏ, mỗi vòng quét một vết | xanh biển = đang bám, đỏ = ngoại suy, cam = còn lại |
+| Vết lịch sử | đường nối các vết (mặc định) hoặc từng chấm tròn | xem *Dạng vết lịch sử* bên dưới |
+| Vùng cấm khởi tạo | mảnh hình quạt viền đứt, nền cam nhạt | chỉ hiện khi bật ô trong tab Tham số |
 
 Hai ô **Hiện thông tin** trong tab Cài đặt bật thêm chữ cạnh hình. Ba nhãn nằm
 ba phía khác nhau vì điểm dấu và quỹ đạo của cùng một mục tiêu gần như trùng vị
@@ -205,8 +396,42 @@ trí — cùng một phía là chữ đè lên chữ:
   0.01° và 0.1 m).
 - **Điểm dấu** — phương vị-cự ly bên trái.
 
-Màu của mọi đối tượng đổi được trong tab **Màu sắc**; ẩn/hiện và độ dài vết
-chỉnh trong tab **Cài đặt**, nhóm *Điểm dấu và quỹ đạo*.
+Màu của mọi đối tượng đổi được trong tab **Màu sắc**; ẩn/hiện, độ dài vết, dạng
+vết và kích thước chỉnh trong tab **Cài đặt**, nhóm *Điểm dấu và quỹ đạo*:
+
+- **Dạng vết lịch sử quỹ đạo** — *Đường* (mặc định) vẽ một đường gấp khúc màu
+  vàng nối các vết và kéo dài tới vị trí hiện tại của quỹ đạo; màu đổi ở mục
+  *Vết — đường nối* trong tab Màu sắc. *Điểm* vẽ từng chấm tròn một, màu theo
+  trạng thái lúc để lại vết: xanh biển = đang bám, đỏ = ngoại suy, cam = còn lại.
+- **Kích thước điểm dấu** và **Kích thước quỹ đạo** — năm nấc 50%, 75%, 100%
+  (mặc định), 150%, 200%. Vết lịch sử và vùng bấm trúng quỹ đạo đi theo nấc của
+  quỹ đạo. Kích thước đo bằng điểm ảnh màn hình, không theo mức phóng bản đồ.
+  Chấm đơn xung đi theo nấc của điểm dấu, nhưng nhỏ hơn hẳn.
+
+### Hiện điểm dấu đơn xung
+
+Ô **Hiện điểm dấu đơn xung** (tab Cài đặt, nhóm *Điểm dấu và quỹ đạo*) vẽ mỗi
+xung phát hiện trong gói `RAW_P` thành một chấm tím nhỏ — tức là **đầu vào** của
+thuật toán tâm chùm, trước khi gom chùm. Mở nó ra là nhìn thấy thuật toán đã gom
+những xung nào và loại những xung nào: một mục tiêu để lại cả một đám chấm tím,
+và điểm dấu tâm chùm (hình vuông đỏ) phải nằm đúng giữa đám đó. Màu đổi ở mục
+*Điểm dấu đơn xung* trong tab **Màu sắc**.
+
+Ba điểm cần nhớ:
+
+- Chấm đơn xung **xoá sớm hơn điểm dấu tâm chùm đúng một giây** (mặc định 7 giây
+  so với 8). Hạn của điểm dấu tâm chùm đặt ở cửa sổ *Tham số tâm chùm*; đổi nó
+  là hạn của lớp đơn xung đi theo.
+- Lớp này nhận **mọi** plot trong gói, kể cả plot mà thuật toán sắp loại vì
+  dopler hoặc vì nằm ngoài rẻ quạt xử lý — chính chỗ đó mới nhìn ra được thuật
+  toán đang loại những gì.
+- Một lần chùm tia quét qua chỉ trải chừng chục mét, nên ở mức phóng vừa cả dải
+  cự ly thì cả đám chấm dính thành một vệt nhỏ. **Phóng to** panel 1 lên thì
+  từng xung mới tách ra.
+
+Mặc định tắt: một mục tiêu để lại vài chục chấm mỗi vòng quét, đây là lớp để soi
+thuật toán chứ không phải để trực ban hàng ngày. Tắt ô này thì phần mềm cũng
+không gom chấm nữa, không chỉ là không vẽ.
 
 ### Thao tác với quỹ đạo
 
@@ -223,10 +448,10 @@ Hàng nút dưới cùng của tab **Danh sách** xoá hàng loạt:
 
 | Nút | Tác dụng |
 |---|---|
-| Xoá toàn bộ điểm dấu | xoá lớp điểm dấu đang vẽ trên bản đồ. Không đụng tới cửa sổ *Thông tin chi tiết điểm dấu* — cửa sổ đó là dòng chảy riêng và đã có nút xoá của nó |
+| Xoá toàn bộ điểm dấu | xoá lớp điểm dấu đang vẽ trên bản đồ, cả tâm chùm lẫn đơn xung. Không đụng tới cửa sổ *Thông tin chi tiết điểm dấu* — cửa sổ đó là dòng chảy riêng và đã có nút xoá của nó |
 | Xoá toàn bộ quỹ đạo | xoá mọi quỹ đạo, kèm cả đầu tốp / độ cao / phân loại đã nhập tay. Có hỏi lại trước, vì thuật toán không dựng lại được phần nhập tay đó. Mỗi quỹ đạo vẫn đi qua đúng đường xoá bằng tay nên hệ thống nhận đều nhận được `track_status = 6` |
 
-Danh sách tên phân loại mục tiêu nằm trong `mx01.json`, khoá `classifyNames` —
+Danh sách tên phân loại mục tiêu nằm trong `settings.json`, khoá `classifyNames` —
 sửa thẳng trong file, chưa có giao diện quản lý.
 
 ### Tham số hai thuật toán
@@ -236,7 +461,7 @@ lưu vào `params.json`.
 
 - **Tham số chùm xung** — tiêu chuẩn độ dài chùm, dopler, xét duyệt xung vào
   chùm, số chu kỳ mở/đóng chùm, phương án tính tâm (đơn giản hay có trọng số
-  biên độ), và số giây giữ điểm dấu trên màn hình.
+  biên độ), **hiệu chỉnh tâm chùm**, và số giây giữ điểm dấu trên màn hình.
 - **Tham số quỹ đạo** — tiêu chuẩn khởi tạo (2/2, 3/3, 2/3 vòng), số vòng ngoại
   suy, dải vận tốc quan tâm, cửa sổ liên kết, sai số đo và nhiễu quá trình, thời
   gian tự xoá khi không cập nhật, và ô bật vẽ cửa sổ dự đoán.
@@ -267,6 +492,13 @@ Ba chỗ đáng chú ý khi chỉnh:
   vòng quét* có thể vượt cả cự ly tối đa; không có trần này thì cửa sổ ôm trọn
   màn hình và mọi điểm dấu đều rơi vào quỹ đạo đầu tiên gặp được.
 
+Group **Hiệu chỉnh tâm chùm** bù sai lệch lắp đặt: **bù phương vị** (độ) và **bù
+cự ly** (mét) cộng vào kết quả **sau khi** thuật toán đã tính xong tâm chùm, ngay
+trước lúc gán vào `azm` và `range` của gói `PlotTC`. Phương vị bù xong quay vòng
+về 0–360°; cự ly bù xong ra âm thì gán bằng 0. Cả hai mặc định 0.0, tức là không
+bù gì. Lớp [điểm dấu đơn xung](#hiện-điểm-dấu-đơn-xung) **không** bù — nó là dữ
+liệu thô của đài, để đối chiếu xem thuật toán đã làm gì với nó.
+
 Ô **cửa sổ phương vị cơ sở** không tham gia việc ghép điểm dấu — cửa sổ liên kết
 xét theo khoảng cách, vì xét riêng theo phương vị thì ở gần tâm đài cùng một
 khoảng cách lại thành một góc rất lớn. Ô đó chỉ nới thêm hình cửa sổ dự đoán vẽ
@@ -283,18 +515,21 @@ chiến đấu. Sửa trong `params.json`, mục `track`:
 | `minInitRangeM` | 50 | Cự ly nhỏ nhất cho phép **khởi tạo** quỹ đạo mới. Quanh tâm đài là chỗ địa vật mạnh nhất |
 
 Cả hai chỉ chặn việc khởi tạo, không đụng tới quỹ đạo đã có: mục tiêu đang bám
-mà bay qua vùng chết quanh tâm đài thì vẫn được cập nhật bình thường.
+mà bay qua vùng chết quanh tâm đài thì vẫn được cập nhật bình thường. Bảng
+[Vùng cấm khởi tạo](#tab-tham-số) trong tab Tham số là chốt thứ ba cùng loại,
+chỉ khác là khoanh theo vùng và chỉnh được ngay trên giao diện.
 
 ## Gửi dữ liệu đi hệ thống khác
 
 Mỗi khi có điểm dấu mới hoặc một quỹ đạo được cập nhật, gói tin tương ứng được
 gửi tới mọi dòng trong bảng **Cổng UDP gửi dữ liệu** (tab Kết nối) đang bật ô
-*Gửi* và đúng loại dữ liệu. Bảng mặc định rỗng.
+*Gửi* và đúng loại dữ liệu. Lần chạy đầu (chưa có `params.json`) bảng có sẵn một
+dòng `Command` ở cổng 6103, đã tích ô *Gửi*.
 
 | Cột | Ý nghĩa |
 |---|---|
-| Gửi | Bật/tắt dòng đó. **Luôn bắt đầu ở trạng thái tắt mỗi lần chạy** — mở phần mềm lên mà tự phát gói ra mạng là chuyện không ai muốn |
-| Loại dữ liệu | `Plot` (điểm dấu tâm chùm) hoặc `Track` (quỹ đạo) |
+| Gửi | Bật/tắt dòng đó. Dòng `Plot`/`Track` **luôn bắt đầu ở trạng thái tắt mỗi lần chạy** — mở phần mềm lên mà tự phát gói ra mạng là chuyện không ai muốn. Dòng `Command` thì giữ nguyên trạng thái đã lưu |
+| Loại dữ liệu | `Plot` (điểm dấu tâm chùm), `Track` (quỹ đạo) hoặc `Command` ([lệnh điều khiển](#lệnh-điều-khiển)) |
 | LocalIP | Card mạng **đi ra**. Để trống là theo bảng định tuyến của hệ điều hành. Chú ý: khác hẳn ý nghĩa của cột cùng tên bên bảng nhận |
 | LocalPort | Để `0` là để hệ điều hành tự chọn cổng nguồn |
 | RemoteIP / RemotePort | Đích đến. Dòng đã bật *Gửi* thì hai ô này bắt buộc có giá trị |
@@ -308,6 +543,10 @@ Bảng này sửa được cả lúc đang kết nối (khác bảng cổng nh�
 lại socket ngay. Địa chỉ trong bảng cũng vào danh sách kiểm tra thông mạng ở
 góc trái thanh trạng thái.
 
+Dòng `Command` **không nằm dưới** nút *Bắt đầu / Dừng gửi dữ liệu*: nút đó là
+công tắc của dòng dữ liệu điểm dấu và quỹ đạo, còn lệnh điều khiển thì đi ra vì
+trắc thủ vừa vặn một nút chứ không phải vì có dòng dữ liệu nào đang chảy.
+
 Quỹ đạo bị xoá được gửi kèm `track_status = 6`, dù xoá bằng tay hay bằng thuật
 toán — hệ thống nhận không biết thì nó giữ quỹ đạo đó trên màn hình vĩnh viễn.
 
@@ -320,6 +559,64 @@ python3 tools/recv_plot_track.py
 Đóng vai hệ thống nhận: mở cổng 6101 và 6102, giải mã theo đúng bảng mô tả giao
 thức rồi in ra, kèm kiểm tra Header và Length. Thêm `--raw` để in đủ từng
 trường, `--port` để đổi cổng. Nghe trên `0.0.0.0` nên nhận được cả gói quảng bá.
+
+## Lệnh điều khiển
+
+Tab **Điều khiển** (giữa *Danh sách* và *Kết nối*) là nơi vặn các tham số của
+đài. Bốn group, mỗi group là một gói tin:
+
+| Group | Gói tin | Header |
+|---|---|---|
+| Điều khiển ăng ten | `CMD_ANTEN` | `0xA4A3A2A1` |
+| Tham số chung | `CMD_COMMON` | `0x04030201` |
+| Tham số DSP kênh cự ly | `CMD_DSP_R` | `0xD4D3D2D1` |
+| Tham số DSP kênh tốc độ | `CMD_DSP_S` | `0xD9D8D7D6` |
+
+`CMD_DSP_R` và `CMD_DSP_S` dùng **chung cả hai giá trị Category**, chỉ khác
+Header và độ dài — nên việc phân loại gói bám vào Header, không bám vào Category.
+
+**Không có nút gửi.** Mỗi lần đổi một lựa chọn hay một ô nhập là **cả gói** của
+group đó đi ra ngay. Ô nhập tắt `keyboardTracking`, nên gõ dở một con số chưa
+phát lệnh — chỉ khi rời ô, bấm `Enter`, hay bấm mũi tên.
+
+Lệnh đi ra các dòng **`Command`** trong bảng cổng gửi; trạng thái phản hồi về
+dòng **`Status`** trong bảng cổng nhận (mặc định 6003). Chưa cấu hình được cổng
+lệnh thì có một thông báo — hộp thoại đúng một lần, kèm dòng chữ đỏ ở cuối tab.
+
+### Đọc phần báo lệch
+
+Nhận được trạng thái mà giá trị nào đó khác giá trị đang điều khiển (đài chưa
+đáp ứng lệnh) thì chỗ đó được đánh dấu bằng **chữ đỏ**:
+
+| Kiểu điều khiển | Cách báo |
+|---|---|
+| Nút chọn (radio) | lựa chọn ứng với **giá trị trạng thái** đổi sang chữ đỏ |
+| Ô nhập | giá trị nhận về hiện bên phải ô, chữ đỏ |
+| Hộp chọn | giá trị nhận về hiện bên phải hộp, chữ đỏ |
+
+Nhãn mỗi group mang **hai số Serial**: `Tên group (serial lệnh - serial trạng
+thái)`, cập nhật mỗi lần gửi lệnh thành công hoặc nhận được trạng thái. Hai số
+lệch nhau nhiều là dấu hiệu đài không trả lời.
+
+Ba trường **chỉ nhận trạng thái**, ô nhập bị khoá: `AT_Azm` (phương vị trả về),
+`Beta_Back` (phương vị hiện tại) và `HW_Version` — phiên bản phần cứng về dưới
+dạng `0xyyMMddhh`, hiện thành `yyyy/MM/dd-hh`.
+
+Giá trị lệnh được lưu trong `params.json` (khoá `control`, theo **tên trường**),
+nên mở phần mềm lên là thấy đúng thứ đã vặn hôm trước — và phép tính
+`Video[1024]` có `ZFbeat` / `GainU` / `DataSend` dùng ngay từ gói đầu tiên chứ
+không phải chờ đài gửi trạng thái về.
+
+### Kiểm tra tab Điều khiển
+
+```bash
+python3 tools/fake_control.py --disobey
+```
+
+Đóng vai đài: nghe cổng lệnh 6103, giải mã gói vừa nhận rồi trả về gói trạng
+thái tương ứng ở cổng 6003. `--disobey` cố tình trả về khác lệnh ở vài trường để
+thấy phần báo lệch bằng chữ đỏ; bỏ nó đi thì đài "nghe lời" và mọi thứ sạch.
+`AT_Azm` / `Beta_Back` trả về một phương vị quay đều 6 vòng/phút.
 
 ## Ghi lưu và phát lại
 
@@ -347,8 +644,8 @@ file chép từ máy khác sang), rồi bấm *Bắt đầu phát lại*.
 
 | Loại phát lại | Chuyện gì xảy ra |
 |---|---|
-| Dữ liệu gốc | toàn bộ đường xử lý **chạy lại từ đầu** — đổi `ZFbeat`, tham số chùm xung hay tham số quỹ đạo rồi xem lại chính phiên đó để so kết quả |
-| Dữ liệu đã xử lý | bộ bám đứng yên, màn hình hiện **đúng cái đã ghi**; nhẹ hơn nhiều và file nhỏ hơn 4 lần |
+| Dữ liệu gốc | toàn bộ đường xử lý **chạy lại từ đầu** — đổi `DataSend`, `ZFbeat`, `Multi_V`, tham số chùm xung hay tham số quỹ đạo rồi xem lại chính phiên đó để so kết quả |
+| Dữ liệu đã xử lý | bộ bám đứng yên, màn hình hiện **đúng cái đã ghi**; nhẹ hơn nhiều và file nhỏ hơn 4 lần. Gói trạng thái lệnh điều khiển đã ghi cũng được đưa lại vào tab *Điều khiển* |
 
 Tốc độ tái hiện 1/4x … 8x chỉ áp cho dữ liệu đã xử lý; dữ liệu gốc luôn 1x nên
 hàng chọn tốc độ tự ẩn. Nhịp phát lại bám theo **mốc thời gian ghi trong file**,
@@ -380,7 +677,7 @@ liệu đã xử lý còn ngắt mỗi **2 tiếng**, tuỳ điều kiện nào 
 Mỗi file gồm **64 byte header** (định danh `0x6969cafe`, phân loại, thời gian
 bắt đầu/kết thúc, các bộ đếm) rồi tới phần Data: các bản ghi nối đuôi nhau, mỗi
 bản ghi có 16 byte tiêu đề riêng mang loại, độ dài và mốc thời gian. Chi tiết
-trong [src/recordfile.h](src/recordfile.h).
+trong [src/record/recordfile.h](src/record/recordfile.h).
 
 Phân loại nằm **trong** header chứ không suy từ tên file, nên đổi tên file cũng
 không nhận nhầm loại. Header được ghi lại mỗi 2 giây, nên phiên bị mất điện giữa
@@ -400,6 +697,22 @@ python3 tools/dump_rec.py --scan build/records
 Đọc header, duyệt phần Data rồi đối chiếu số bản ghi đếm được với số khai trong
 header — dùng để kiểm tra phía ghi mà không phải mở giao diện. Thêm `--list N`
 để in N bản ghi đầu tiên.
+
+### Phát lại ra mạng cho máy khác
+
+Chức năng *Phát lại* ở trên chạy ngay trong phần mềm. Muốn dựng lại một phiên
+trên **máy khác** — máy không có file ghi lưu — thì đẩy file ra mạng dưới dạng
+gói UDP, phía nhận không phân biệt được với dòng dữ liệu của đài thật:
+
+```bash
+python3 tools/playback_raw.py -source ./raw_20260803_103025.rec -addr 192.168.232.238 -udpports 8200 8300
+```
+
+`-udpports` nhận hai số: cổng `RAW_V` rồi cổng `RAW_P` của máy nhận. Địa chỉ
+kết thúc bằng `.255` được nhận ra là địa chỉ quảng bá và tự bật `SO_BROADCAST`.
+Nhịp gửi bám theo mốc thời gian ghi trong file; thêm `-speed X` để phát nhanh
+hơn (`-speed 0` là nhanh nhất có thể) và `-loop` để phát lặp lại. Công cụ chỉ
+nhận **file dữ liệu gốc**; đưa file dữ liệu đã xử lý vào thì nó báo lỗi và dừng.
 
 ## Nền bản đồ số
 
@@ -421,7 +734,7 @@ sân bay và tên địa danh. Toạ độ trong tệp có thể đang ở phép
 Conformal Conic hoặc Transverse Mercator — phần mềm tự đọc `.prj` và quy về
 kinh/vĩ độ.
 
-Năm ô ngay dưới ComboBox cho ẩn/hiện từng lớp; lựa chọn được lưu vào `mx01.json`.
+Năm ô ngay dưới ComboBox cho ẩn/hiện từng lớp; lựa chọn được lưu vào `settings.json`.
 Đường dẫn dữ liệu nằm ở trường `vectorDir`, quy tắc giống `tilesDir` bên dưới.
 
 ### Tile MapTiler
@@ -462,7 +775,7 @@ Tên hiển thị lấy từ trường `label` trong `tileset.json`; đổi bằ
 
 ### Đổi đường dẫn thư mục bản đồ
 
-Sửa trường `tilesDir` trong `mx01.json` — đây là thư mục **gốc** chứa các kiểu nền:
+Sửa trường `tilesDir` trong `settings.json` — đây là thư mục **gốc** chứa các kiểu nền:
 
 | Giá trị | Ý nghĩa |
 |---|---|
@@ -472,7 +785,7 @@ Sửa trường `tilesDir` trong `mx01.json` — đây là thư mục **gốc** 
 Đường dẫn tương đối còn được dò ngược lên vài cấp thư mục cha, nhờ vậy lúc phát
 triển (file chạy trong `build/`) vẫn thấy `maps/mt/tiles` ở gốc repo.
 
-Biến môi trường (tên khai trong [src/appinfo.h](src/appinfo.h), hiện là
+Biến môi trường (tên khai trong [src/app/appinfo.h](src/app/appinfo.h), hiện là
 `MX01_TILES_DIR`) đè lên tất cả — tiện khi thử nhanh:
 
 ```bash
@@ -483,7 +796,7 @@ Bộ mang đi máy khác nên có bố cục:
 
 ```
 ar0101                      ← file chạy
-mx01.json                   ← cấu hình hiển thị (tự sinh ở lần chạy đầu)
+settings.json                   ← cấu hình hiển thị (tự sinh ở lần chạy đầu)
 params.json                 ← tham số và danh sách cổng (tự sinh ở lần chạy đầu)
 maps/mt/<kiểu-nền>/         ← tile bản đồ MapTiler, mỗi kiểu một thư mục
 maps/tc/                    ← shapefile của lớp bản đồ TC
@@ -500,7 +813,7 @@ gom về **hai chỗ**, sửa xong là chạy — không phải đi tìm tên r�
 | Sửa ở đâu | Sửa cái gì |
 |---|---|
 | [CMakeLists.txt](CMakeLists.txt), dòng `project(...)` | Tên file chạy. **Chữ không dấu**, vì là tên file thật trên đĩa. |
-| [src/appinfo.h](src/appinfo.h) | Tên hiển thị, tên đơn vị, tên hai file cấu hình, biến môi trường. |
+| [src/app/appinfo.h](src/app/appinfo.h) | Tên hiển thị, tên đơn vị, tên hai file cấu hình, biến môi trường. |
 
 Tên hiển thị **viết tiếng Việt có dấu được** — nó chỉ ra tiêu đề cửa sổ và tiêu
 đề hộp thoại. Hai thứ này độc lập nhau:
