@@ -4,6 +4,7 @@
 
 #include <QWidget>
 
+class QCheckBox;
 class QLabel;
 class QPushButton;
 class QTableWidget;
@@ -45,6 +46,9 @@ signals:
     /// mở lại socket theo danh sách mới.
     void txEndpointsChanged(const QVector<NetEndpoint> &tx);
 
+    /// Ô "Tự động cấu hình cổng nhận Status..." vừa được bật/tắt.
+    void statusFollowsCommandChanged(bool on);
+
     /// Người dùng bấm nút Bắt đầu / Dừng nhận dữ liệu.
     void connectRequested();
     void disconnectRequested();
@@ -77,16 +81,22 @@ private:
     /// Ép ô "Gửi" của dòng Command tích sẵn và khoá lại.
     void syncTxSendBoxes();
 
+    /// Làm mờ dòng "Status" khi ô tự động đang bật — dòng vẫn sửa được, chỉ là
+    /// không còn hiệu lực. Không có dấu hiệu này thì bảng hiện một dòng cấu hình
+    /// đúng đắn mà chẳng làm gì, đúng kiểu lỗi không nhìn ra được.
+    void markStatusRow();
+
     AppParams m_params;
     bool      m_loading   = false;
     bool      m_running   = false;
     bool      m_txRunning = false;
 
-    QTableWidget *m_rx     = nullptr;
-    QPushButton  *m_add    = nullptr;
-    QPushButton  *m_remove = nullptr;
-    QPushButton  *m_toggle = nullptr;
-    QLabel       *m_status = nullptr;
+    QTableWidget *m_rx         = nullptr;
+    QCheckBox    *m_autoStatus = nullptr;
+    QPushButton  *m_add        = nullptr;
+    QPushButton  *m_remove     = nullptr;
+    QPushButton  *m_toggle     = nullptr;
+    QLabel       *m_status     = nullptr;
 
     QTableWidget *m_tx       = nullptr;
     QPushButton  *m_txAdd    = nullptr;

@@ -1,0 +1,67 @@
+# Kịch bản kiểm tra ô "Tự động cấu hình cổng nhận Status theo cổng gửi lệnh
+# điều khiển Command" trong tab "Kết nối".
+#
+# Đài thật trả trạng thái về **đúng cổng nguồn của gói lệnh**, mà cổng đó do hệ
+# điều hành tự chọn nên không khai trước được trong bảng cổng nhận. Ô này bật
+# thì dòng "Status" của bảng bị bỏ qua và chính socket gửi lệnh là nơi nghe.
+#
+# Chạy kèm đài giả (nó cũng trả về đúng nơi gói lệnh đi ra):
+#
+#     python3 tools/fake_control.py --cmd-port <RemotePort của dòng Command>
+#
+# Bằng chứng: tiêu đề khung "Điều khiển ăng ten" mang cặp serial
+# "(lệnh - trạng thái)". Chạy đúng thì lần lượt ra:
+#
+#     "Điều khiển ăng ten"          chưa gửi lệnh nào
+#     "Điều khiển ăng ten (1 - 1)"  ô đang bật: trạng thái về được
+#     "Điều khiển ăng ten (2 - 1)"  ô đã tắt: lệnh đi ra, trạng thái bị bỏ
+#     "Điều khiển ăng ten (3 - 3)"  tích lại: về ngay, không phải chạy lại
+#
+# Nhánh ngược lại — ô tắt mà **có** nghe đúng dòng "Status" — thì chạy đài giả
+# với  --status-port 6003  rồi bấm thêm "Bắt đầu nhận dữ liệu".
+
+tab "Kết nối"
+wait 400
+shot /tmp/status-cong-lenh-1-ketnoi.png
+
+# Bảng cổng nhận: dòng "Status" vẫn còn nguyên trong bảng, chỉ là đang mờ đi.
+table .QTableWidget
+
+# --- 1. Ô đang bật: trạng thái phải về được ---------------------------------
+tab "Điều khiển"
+wait 400
+text .QGroupBox
+
+# Không có nút "Gửi": mỗi lần đổi giá trị là một gói lệnh đi ra.
+set "Tốc độ quay (v/p)" 12
+wait 900
+text .QGroupBox
+text "Phương vị trả về"
+shot /tmp/status-cong-lenh-2-datraloi.png
+
+# --- 2. Bỏ tích: trạng thái không về nữa ------------------------------------
+# Lúc này phần mềm nghe theo dòng "Status" trong bảng (cổng 6003), còn đài giả
+# vẫn trả về cổng nguồn của gói lệnh — nên serial trạng thái phải đứng yên.
+tab "Kết nối"
+wait 300
+check #autoStatusPort off
+wait 300
+shot /tmp/status-cong-lenh-3-datat.png
+
+tab "Điều khiển"
+wait 300
+set "Tốc độ quay (v/p)" 18
+wait 900
+text .QGroupBox
+
+# --- 3. Tích lại: về được ngay, không phải khởi động lại phần mềm -----------
+tab "Kết nối"
+wait 300
+check #autoStatusPort on
+wait 300
+
+tab "Điều khiển"
+wait 300
+set "Tốc độ quay (v/p)" 24
+wait 900
+text .QGroupBox

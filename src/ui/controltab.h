@@ -59,6 +59,9 @@ signals:
     /// cần bằng statusValue().
     void statusReceived(int group);
 
+    /// Bấm nút "Điều khiển ADF4159" — mở cửa sổ điều khiển kit tạo tín hiệu.
+    void adf4159Requested();
+
 private:
     /// Phần giao diện của một trường. Trường chưa dùng đến để trống hết.
     struct Cell {
@@ -93,6 +96,14 @@ private:
     void refreshTitle(int group);
 
     cmdproto::Values m_values;
+
+    /// Giá trị của lần **gửi lệnh** gần nhất, cho các trường soi giá trị gói
+    /// khác (FixEncoder lấy theo AzmOffset). Không phải m_values: m_values theo
+    /// ô trên giao diện và được nạp lại từ settings.json lúc mở phần mềm, còn
+    /// cái này là "đã ra lệnh cho đài những gì" nên mở phần mềm là quay về giá
+    /// trị mặc định — chưa gửi lệnh nào thì chưa biết đài đang ở đâu.
+    cmdproto::Values m_lastSent;
+
     GroupUi          m_groups[cmdproto::GroupCount];
     QLabel          *m_status  = nullptr;
     bool             m_loading = false;

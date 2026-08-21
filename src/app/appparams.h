@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/cmdproto.h"
+#include "proc/adf4159.h"
 #include "proc/procparams.h"
 #include "net/rawpacket.h"
 
@@ -97,9 +98,27 @@ struct AppParams {
     // tiên chứ không phải chờ đài gửi trạng thái về.
     cmdproto::Values control;
 
+    // --- cấu hình kit tạo tín hiệu ADF4159 (cửa sổ "Điều khiển ADF4159") ---
+    //
+    // Lưu tham số trên giao diện chứ không lưu tám thanh ghi đã tính ra: thanh
+    // ghi thì suy lại được từ tham số bất cứ lúc nào, còn chiều ngược lại thì
+    // không — tách một từ 32 bit ra thành "tần số VCO 6000 MHz" là việc không
+    // có lời giải duy nhất.
+    adf4159::Settings adf;
+
     // --- danh sách cổng ---
     QVector<NetEndpoint> rx;   ///< cổng nhận
     QVector<NetEndpoint> tx;   ///< cổng gửi
+
+    /// Cổng nhận trạng thái đi **theo cổng nguồn của dòng "Command"** thay vì
+    /// theo dòng "Status" trong bảng cổng nhận.
+    ///
+    /// Hệ thống thật trả trạng thái về đúng cổng đã gửi lệnh tới nó. Cổng đó
+    /// thường do hệ điều hành tự chọn (LocalPort của dòng "Command" để 0) nên
+    /// mỗi lần chạy một số khác nhau — không có cách nào khai trước trong bảng
+    /// cổng nhận. Bật cờ này thì dòng "Status" trong bảng bị bỏ qua và chính
+    /// socket gửi lệnh là nơi nghe trạng thái.
+    bool statusFollowsCommand = true;
 
     // --- giới hạn, dùng chung cho ô nhập và cho việc chặn giá trị từ file ---
     static constexpr double kFsMin = 0.1,   kFsMax = 50.0;
@@ -141,6 +160,15 @@ struct AppParams {
     /// trong ComboBox. Chỉ là gợi ý cho người dùng: việc giải mã phân loại theo
     /// nội dung gói chứ không theo tên, nên gõ tên khác vẫn chạy bình thường.
     static QStringList rxNames();
+
+    /// Tên của dòng "Status" trong bảng cổng nhận.
+    static QString statusRowName();
+
+    /// Dòng này có phải dòng "Status" không — chỗ **duy nhất** nhận diện nó, để
+    /// giao diện và phần mở cổng không bao giờ hiểu khác nhau. Đây cũng là ngoại
+    /// lệ duy nhất của nguyên tắc "tên chỉ là nhãn": statusFollowsCommand phải
+    /// biết bỏ qua đúng một dòng nào đó, mà tên là thứ duy nhất chỉ ra được.
+    static bool isStatusRow(const NetEndpoint &e);
 
     /// Cổng nhận mặc định của loại dữ liệu chưa được tạo sẵn (Plot).
     static constexpr quint16 kDefaultPlotPort = 6004;

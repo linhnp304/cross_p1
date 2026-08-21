@@ -52,16 +52,16 @@ import time
 HEADER_V = 0xB4B3B2B1
 CATEGORY_V = 0x20180
 BINS = 1024
-WORDS_V = 6 + BINS + 1          # 1031 từ, khớp trường Length
-LENGTH_V = WORDS_V * 4
+WORDS_V = 6 + BINS + 1          # 1031 từ
+LENGTH_V = WORDS_V * 4          # trường Length là số byte
 
 # --- RAW_P -----------------------------------------------------------------
 HEADER_P = 0xC4C3C2C1
 CATEGORY_P = 0x30180
-PLOTS = 64                      # Data_P[64]
-MAX_PLOTS = PLOTS - 1           # Data_P[0] là từ tiêu đề chu kỳ
+PLOTS = 64                      # Data_P[64], cả 64 ô đều là plot
+MAX_PLOTS = PLOTS
 WORDS_P = 7 + PLOTS + 1         # 72 từ
-LENGTH_P = WORDS_P * 4
+LENGTH_P = WORDS_P * 4          # trường Length là số byte
 
 AZIMUTH_STEPS = 4096
 RANGE_CELLS = 1024
@@ -153,13 +153,15 @@ def build_raw_v(serial, azimuth, data):
 def build_raw_p(serial, azimuth, cycle_count, plots):
     """plots: danh sách (cell, amplitude, dopler)."""
     words = [0] * PLOTS
-    # Data_P[0]: bit 0..11 phương vị, bit 12..30 số đếm, bit 31 dấu đầu chu kỳ.
-    words[0] = (azimuth & 0x0FFF) | ((cycle_count & 0x7FFFF) << 12) | (1 << 31)
     for i, (cell, amp, dop) in enumerate(plots[:MAX_PLOTS]):
-        words[i + 1] = (amp & 0xFFFF) | ((cell & 0x03FF) << 16) | ((dop & 0x1F) << 26)
+        words[i] = (amp & 0xFFFF) | ((cell & 0x03FF) << 16) | ((dop & 0x1F) << 26)
+
+    # Ô Azimuth mang cả từ đầu chu kỳ, đúng như đài thật phát: bit 0..11 phương
+    # vị, bit 12..30 số đếm, bit 31 dấu đầu chu kỳ. Data_P thì toàn plot.
+    azm_word = (azimuth & 0x0FFF) | ((cycle_count & 0x7FFFF) << 12) | (1 << 31)
 
     head = struct.pack("<7I", HEADER_P, CATEGORY_P, LENGTH_P, serial, 0,
-                       azimuth, len(plots[:MAX_PLOTS]))
+                       azm_word, len(plots[:MAX_PLOTS]))
     return head + struct.pack("<{}I".format(PLOTS), *words) + struct.pack("<I", 0)
 
 

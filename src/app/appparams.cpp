@@ -99,6 +99,44 @@ void controlFromJson(const QJsonObject &root, cmdproto::Values &c)
     }
 }
 
+// --- cấu hình kit ADF4159 ---------------------------------------------------
+//
+// Bảng tên khoá nằm ở adf4159::visit(), không chép lại ở đây: bốn chục trường mà
+// giữ khớp hai danh sách bằng mắt thì sớm muộn cũng lệch một cái, mà lệch thì
+// chỉ hiện ra ở chỗ "mở phần mềm lên thấy sai đúng một ô".
+
+QJsonObject adfToJson(const adf4159::Settings &s)
+{
+    QJsonObject o;
+    // visit() nhận tham chiếu sửa được nên phải có một bản chép; hàm này không
+    // đụng gì vào giá trị nên bản chép ấy về nguyên vẹn.
+    adf4159::Settings copy = s;
+    adf4159::visit(copy, [&o](const char *name, auto &value) {
+        o[QString::fromLatin1(name)] = QJsonValue(value);
+    });
+    return o;
+}
+
+void adfFromJson(const QJsonObject &o, adf4159::Settings &s)
+{
+    adf4159::visit(s, [&o](const char *name, auto &value) {
+        const QJsonValue v = o.value(QString::fromLatin1(name));
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, bool>) {
+            if (v.isBool())
+                value = v.toBool();
+        } else if constexpr (std::is_same_v<T, int>) {
+            if (v.isDouble())
+                value = v.toInt();
+        } else {
+            if (v.isDouble())
+                value = v.toDouble();
+        }
+        // Thiếu khoá thì giữ nguyên giá trị mặc định.
+    });
+    s.clamp();
+}
+
 QJsonArray endpointsToJson(const QVector<NetEndpoint> &list)
 {
     QJsonArray a;
@@ -326,7 +364,19 @@ rawpkt::VideoScale AppParams::videoScale() const
 QStringList AppParams::rxNames()
 {
     return {QStringLiteral("RAW_V"), QStringLiteral("RAW_P"),
-            QStringLiteral("Status"), QStringLiteral("Plot")};
+            statusRowName(), QStringLiteral("Plot")};
+}
+
+QString AppParams::statusRowName()
+{
+    return QStringLiteral("Status");
+}
+
+bool AppParams::isStatusRow(const NetEndpoint &e)
+{
+    // Không phân biệt hoa thường: ô tên sửa được nên "status" gõ tay cũng phải
+    // được hiểu là chính dòng đó.
+    return e.name.trimmed().compare(statusRowName(), Qt::CaseInsensitive) == 0;
 }
 
 QStringList AppParams::txKindNames()
@@ -422,6 +472,7 @@ bool AppParams::load()
     multiV = o.value(QStringLiteral("multiV")).toDouble(multiV);
 
     controlFromJson(o.value(QStringLiteral("control")).toObject(), control);
+    adfFromJson(o.value(QStringLiteral("adf4159")).toObject(), adf);
 
     // File của giai đoạn trước để ZFbeat ngay trong tham số kỹ thuật. Nay giá
     // trị đó thuộc về lệnh CMD_DSP_R, nên chuyển sang chỗ mới thay vì bỏ đi —
@@ -460,6 +511,8 @@ bool AppParams::load()
         rx = endpointsFromJson(o.value(QStringLiteral("rx")).toArray());
     if (o.value(QStringLiteral("tx")).isArray())
         tx = endpointsFromJson(o.value(QStringLiteral("tx")).toArray());
+    statusFollowsCommand = o.value(QStringLiteral("statusFollowsCommand"))
+                               .toBool(statusFollowsCommand);
 
     clampToRange();
     return true;
@@ -476,6 +529,7 @@ bool AppParams::save() const
     o[QStringLiteral("tc")]             = tc;
     o[QStringLiteral("multiV")]         = multiV;
     o[QStringLiteral("control")]        = controlToJson(control);
+    o[QStringLiteral("adf4159")]        = adfToJson(adf);
     o[QStringLiteral("autoFromStatus")] = autoFromStatus;
     o[QStringLiteral("autoRange")]      = autoRange;
     o[QStringLiteral("sectors")]        = sectorsToJson(sectors);
@@ -485,6 +539,7 @@ bool AppParams::save() const
     o[QStringLiteral("track")]          = trackToJson(track);
     o[QStringLiteral("rx")]             = endpointsToJson(rx);
     o[QStringLiteral("tx")]             = endpointsToJson(tx);
+    o[QStringLiteral("statusFollowsCommand")] = statusFollowsCommand;
 
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly))

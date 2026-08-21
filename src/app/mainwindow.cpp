@@ -1,6 +1,7 @@
 #include "app/mainwindow.h"
 
 #include "app/appinfo.h"
+#include "ui/adf4159window.h"
 #include "ui/ascope.h"
 #include "ui/beamparamsdialog.h"
 #include "ui/colorstab.h"
@@ -155,8 +156,18 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::applyEndpoints);
     connect(m_connectionTab, &ConnectionTab::txEndpointsChanged,
             this, &MainWindow::applyTxEndpoints);
+    connect(m_connectionTab, &ConnectionTab::statusFollowsCommandChanged,
+            this, &MainWindow::applyStatusFollowsCommand);
     connect(m_sender, &UdpSender::failed, this, [this](const QString &msg) {
         m_connectionTab->setStatusText(msg, true);
+    });
+    // Trạng thái về trên chính socket gửi lệnh đi đúng con đường của trạng thái
+    // nhận ở bảng cổng nhận: vào tab "Điều khiển" và vào file ghi lưu. Chỗ này
+    // đã ở luồng giao diện rồi nên không phải qua hàng đợi nào.
+    connect(m_sender, &UdpSender::statusReceived, this, [this](const QByteArray &dg) {
+        if (m_recorder->wantsProc())
+            m_recorder->push(rec::RecType::Other, dg);
+        routeStatus(dg);
     });
     connect(m_connectionTab, &ConnectionTab::connectRequested,
             this, &MainWindow::startLink);
@@ -180,6 +191,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_controlTab, &ControlTab::statusReceived,
             this, &MainWindow::applyStatusToParams);
+    connect(m_controlTab, &ControlTab::adf4159Requested,
+            this, &MainWindow::showAdf4159);
 
     // --- ghi lưu và phát lại ---
     connect(m_recordTab, &RecordTab::recordStartRequested,
@@ -384,6 +397,7 @@ MainWindow::MainWindow(QWidget *parent)
     // tín hiệu (nó chỉ đổ dữ liệu vào bảng), nên nếu không gọi ở đây thì tới
     // tận lúc trắc thủ sửa bảng cổng mới có socket nào — mà lệnh điều khiển
     // đầu tiên của ca trực thì đi trước lúc đó rất lâu.
+    m_sender->setReceiveStatus(m_params.statusFollowsCommand);
     m_sender->setEndpoints(activeTxEndpoints());
     m_trackTab->setSettings(m_settings);
 
@@ -621,6 +635,30 @@ void MainWindow::applyEndpoints(const QVector<NetEndpoint> &rx)
     refreshLanHosts();
 }
 
+QVector<NetEndpoint> MainWindow::activeRxEndpoints() const
+{
+    if (!m_params.statusFollowsCommand)
+        return m_params.rx;
+
+    QVector<NetEndpoint> out;
+    out.reserve(m_params.rx.size());
+    for (const NetEndpoint &e : m_params.rx) {
+        if (!AppParams::isStatusRow(e))
+            out.push_back(e);
+    }
+    return out;
+}
+
+void MainWindow::applyStatusFollowsCommand(bool on)
+{
+    m_params.statusFollowsCommand = on;
+    m_sender->setReceiveStatus(on);
+    m_params.save();
+    // Bảng cổng nhận bị khoá trong lúc đang nhận (ConnectionTab::setRunning),
+    // ô này cũng vậy — nên không có cảnh dòng "Status" vừa bị bỏ qua mà socket
+    // của nó vẫn đang mở.
+}
+
 QVector<NetEndpoint> MainWindow::activeTxEndpoints() const
 {
     QVector<NetEndpoint> out;
@@ -645,6 +683,16 @@ void MainWindow::applyTxEndpoints(const QVector<NetEndpoint> &tx)
     refreshLanHosts();
 }
 
+QString MainWindow::noCommandPortMsg()
+{
+    // Không có dòng "Command" nào mở được: hoặc bảng cổng gửi không còn dòng
+    // đó, hoặc dòng đó chưa tích ô "Gửi", hoặc địa chỉ đích chưa hợp lệ. Cả ba
+    // đều dẫn tới cùng một việc phải làm nên nói chung một câu.
+    return tr("Chưa gửi được lệnh điều khiển — vào tab \"Kết nối\", bảng \"Cổng "
+              "UDP gửi dữ liệu\", cấu hình một dòng loại \"Command\" với RemoteIP "
+              "và RemotePort của đài rồi tích ô \"Gửi\".");
+}
+
 void MainWindow::sendCommand(int group, const QByteArray &datagram)
 {
     const bool ok = m_sender->send(TxKind::Command, datagram);
@@ -655,27 +703,68 @@ void MainWindow::sendCommand(int group, const QByteArray &datagram)
         return;
     }
 
-    // Không có dòng "Command" nào mở được: hoặc bảng cổng gửi không còn dòng
-    // đó, hoặc dòng đó chưa tích ô "Gửi", hoặc địa chỉ đích chưa hợp lệ. Cả ba
-    // đều dẫn tới cùng một việc phải làm nên nói chung một câu.
-    const QString msg =
-        tr("Chưa gửi được lệnh điều khiển — vào tab \"Kết nối\", bảng \"Cổng "
-           "UDP gửi dữ liệu\", cấu hình một dòng loại \"Command\" với RemoteIP "
-           "và RemotePort của đài rồi tích ô \"Gửi\".");
-    m_controlTab->setStatusText(msg, true);
+    m_controlTab->setStatusText(noCommandPortMsg(), true);
+    warnNoCommandPort();
+}
 
+void MainWindow::sendAdfCommand(int kind, const QByteArray &datagram)
+{
+    // Cùng dòng "Command" với bốn gói lệnh của tab "Điều khiển": kit ADF4159
+    // nằm trong cùng một đài, không có đường gửi riêng.
+    const bool ok = m_sender->send(TxKind::Command, datagram);
+    m_adfWindow->setSendResult(kind, ok);
+    if (!ok) {
+        m_adfWindow->setStatusText(noCommandPortMsg(), true);
+        warnNoCommandPort();
+    }
+}
+
+void MainWindow::warnNoCommandPort()
+{
     // Hộp thoại đúng một lần: chưa cấu hình thì nút nào vặn cũng hụt, mà mỗi
     // lần hụt một hộp thoại thì không dùng nổi giao diện.
     //
     // Lùi sang nhịp sự kiện kế tiếp chứ không mở ngay: chỗ này đang nằm giữa
     // chuỗi tín hiệu của một ô nhập vừa đổi giá trị, mà hộp thoại chặn thì
     // chuỗi đó dừng lại giữa chừng cho tới khi người dùng bấm nút.
-    if (!m_warnedNoCommandPort) {
-        m_warnedNoCommandPort = true;
-        QTimer::singleShot(0, this, [this, msg] {
-            QMessageBox::warning(this, appinfo::displayName(), msg);
+    if (m_warnedNoCommandPort)
+        return;
+
+    m_warnedNoCommandPort = true;
+    QTimer::singleShot(0, this, [this] {
+        QMessageBox::warning(this, appinfo::displayName(), noCommandPortMsg());
+    });
+}
+
+void MainWindow::showAdf4159()
+{
+    if (!m_adfWindow) {
+        m_adfWindow = new Adf4159Window(this);
+        connect(m_adfWindow, &Adf4159Window::commandReady,
+                this, &MainWindow::sendAdfCommand);
+        connect(m_adfWindow, &Adf4159Window::settingsChanged, this, [this] {
+            m_params.adf = m_adfWindow->settings();
+            m_params.save();
         });
+        m_adfWindow->setSettings(m_params.adf);
+        // Cửa sổ này rộng nên đặt lệch hẳn sang trái, khác hai cửa sổ tham số
+        // vốn nép vào khu vực panel 2.
+        m_adfWindow->move(mapToGlobal(QPoint(40, 40)));
     }
+    m_adfWindow->show();
+    m_adfWindow->raise();
+    m_adfWindow->activateWindow();
+}
+
+void MainWindow::routeStatus(const QByteArray &datagram)
+{
+    if (m_controlTab->applyStatus(datagram))
+        return;
+    // Trạng thái của kit ADF4159 chỉ đọc được khi cửa sổ của nó đã dựng — mà
+    // kit cũng chỉ trả lời khi có lệnh gửi đi, mà lệnh thì chỉ gửi được từ
+    // chính cửa sổ đó. Nên chưa mở lần nào thì cũng chưa có gì để mất.
+    if (m_adfWindow)
+        m_adfWindow->applyStatus(datagram);
 }
 
 void MainWindow::sendPlots(const QVector<PlotTC> &plots)
@@ -813,8 +902,16 @@ void MainWindow::startLink()
         return;
     }
 
-    if (m_params.rx.isEmpty()) {
-        m_connectionTab->setStatusText(tr("Chưa có cổng nào trong bảng"), true);
+    const QVector<NetEndpoint> rx = activeRxEndpoints();
+    if (rx.isEmpty()) {
+        // Bảng còn dòng mà danh sách có hiệu lực lại rỗng thì chỉ có một lý do:
+        // dòng duy nhất còn lại là dòng "Status" đang bị ô tự động bỏ qua.
+        m_connectionTab->setStatusText(
+            m_params.rx.isEmpty()
+                ? tr("Chưa có cổng nào trong bảng")
+                : tr("Bảng chỉ còn dòng \"Status\", mà dòng đó đang bị bỏ qua — "
+                     "thêm dòng cổng nhận dữ liệu, hoặc bỏ tích ô tự động"),
+            true);
         return;
     }
 
@@ -822,7 +919,7 @@ void MainWindow::startLink()
 
     m_connectionTab->setStatusText(QString());
     pushVideoScale();
-    m_link->start(m_params.rx);
+    m_link->start(rx);
     m_connectionTab->setRunning(true);
     m_linkClock.restart();
 
@@ -1015,7 +1112,7 @@ bool MainWindow::applyReplayItem(const rec::RecItem &item)
         // Trạng thái lệnh điều khiển đã ghi lại thì phát lại được luôn: xem lại
         // một phiên là thấy đúng đài đang ở trạng thái nào lúc đó. Gói khác
         // (trạng thái hệ thống) thì applyStatus() trả về false và bỏ qua.
-        m_controlTab->applyStatus(item.payload);
+        routeStatus(item.payload);
         break;
     }
     return false;
@@ -1047,7 +1144,7 @@ void MainWindow::onTick()
     // datagram nguyên vẹn, tách trường ngay tại tab "Điều khiển".
     m_link->drainStatus(m_rxStatus);
     for (const QByteArray &dg : m_rxStatus)
-        m_controlTab->applyStatus(dg);
+        routeStatus(dg);
 
     // Chốt sổ vòng quét theo RAW_V khi nguồn không phát RAW_P — xem m_lastVAzimuth.
     if (!m_drained.isEmpty())
@@ -1164,7 +1261,7 @@ void MainWindow::processCycle(const rawpkt::RawPCycle &cycle)
 {
     m_lastRawPMs = m_clock.elapsed();
 
-    const int azimuth = int(cycle.workAzimuth());
+    const int azimuth = int(cycle.azimuth);
 
     // Đẩy đường quét của bộ bám **trước** khi tách chùm chu kỳ này: quỹ đạo nào
     // vừa bị đường quét bỏ lại phía sau thì chốt sổ ngay lúc này, để điểm dấu
@@ -1259,10 +1356,23 @@ void MainWindow::refreshLinkStatus()
                    .arg(m_sender->sentTracks());
     };
 
+    // Đường trạng thái đi theo cổng gửi lệnh nằm ngoài hai nút bấm của tab này,
+    // nên nó có phần đuôi riêng. Hiện cả số cổng: đó là số hệ điều hành vừa
+    // chọn, không tra được ở đâu khác trong phần mềm.
+    const auto statusSuffix = [this]() -> QString {
+        const quint16 port = m_sender->commandLocalPort();
+        if (!m_params.statusFollowsCommand || port == 0)
+            return {};
+        return tr(" | Status theo cổng lệnh %1: %2 gói")
+                   .arg(port)
+                   .arg(m_sender->recvStatus());
+    };
+
     const LinkStats s = m_link->stats();
     if (!m_link->isRunning()) {
         m_connectionTab->setStatusText(
-            tr("Đã dừng nhận — nhận được %1 gói RAW_V").arg(s.rawV) + txSuffix());
+            tr("Đã dừng nhận — nhận được %1 gói RAW_V").arg(s.rawV)
+            + txSuffix() + statusSuffix());
         return;
     }
 
@@ -1275,9 +1385,11 @@ void MainWindow::refreshLinkStatus()
                 tr("Đã mở cổng nhưng %1 giây rồi chưa nhận được gói nào — kiểm "
                    "tra tường lửa của máy, LocalIP đã đúng card nối với đài "
                    "chưa, và đài đã phát chưa")
-                    .arg(m_linkClock.elapsed() / 1000), true);
+                    .arg(m_linkClock.elapsed() / 1000)
+                + statusSuffix(), true);
         } else {
-            m_connectionTab->setStatusText(tr("Đã mở cổng — đang chờ dữ liệu"));
+            m_connectionTab->setStatusText(tr("Đã mở cổng — đang chờ dữ liệu")
+                                           + statusSuffix());
         }
         return;
     }
@@ -1288,7 +1400,8 @@ void MainWindow::refreshLinkStatus()
     if (s.rawV == 0 && s.rawP == 0 && s.status == 0) {
         m_connectionTab->setStatusText(
             tr("Nhận được %1 gói nhưng không gói nào đúng giao thức RAW_V/RAW_P "
-               "— nhiều khả năng sai cổng").arg(s.other), true);
+               "— nhiều khả năng sai cổng").arg(s.other)
+                + statusSuffix(), true);
         return;
     }
 
@@ -1301,7 +1414,7 @@ void MainWindow::refreshLinkStatus()
         text += tr(" — bỏ bớt %1 lượt quét, %2 chu kỳ điểm dấu, %3 gói ghi lưu")
                     .arg(s.droppedV).arg(s.droppedP).arg(s.droppedRec);
     }
-    m_connectionTab->setStatusText(text + txSuffix());
+    m_connectionTab->setStatusText(text + txSuffix() + statusSuffix());
 }
 
 void MainWindow::refreshRecordStatus()
@@ -1367,7 +1480,7 @@ void MainWindow::collectRawPlots(const rawpkt::RawPCycle &cycle, qint64 nowMs)
     // Riêng phần bù phương vị / cự ly của "Hiệu chỉnh tâm chùm" **không** cộng
     // vào đây: lớp này là dữ liệu thô của đài, để đối chiếu xem thuật toán đã
     // làm gì với nó. Bù cả hai lớp thì không còn gì để đối chiếu.
-    const double azmDeg   = rawpkt::azimuthToDeg(cycle.workAzimuth());
+    const double azmDeg   = rawpkt::azimuthToDeg(cycle.azimuth);
     const double maxRange = m_settings.maxRangeKm * 1000.0;
 
     for (int i = 0; i < cycle.count; ++i) {
@@ -1397,16 +1510,8 @@ void MainWindow::clearAllTracks()
     if (n == 0)
         return;
 
-    // Hỏi lại vì đây là thao tác hàng loạt và mất cả phần trắc thủ nhập tay
-    // (đầu tốp, độ cao, phân loại) — thứ thuật toán không dựng lại được.
-    if (QMessageBox::question(
-            this, appinfo::displayName(),
-            tr("Xoá toàn bộ %1 quỹ đạo đang có?\n\n"
-               "Số đầu tốp, độ cao và phân loại đã nhập tay sẽ mất theo. Hệ "
-               "thống nhận cũng được báo trạng thái xoá.").arg(n),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-        != QMessageBox::Yes)
-        return;
+    // Xoá thẳng, không hỏi lại: trắc thủ bấm nút này giữa lúc đang trực, thêm
+    // một hộp thoại nữa là thêm một nhịp phải rời mắt khỏi màn hình.
 
     // Đi qua đúng đường xoá bằng tay của từng quỹ đạo, để cái nào cũng được
     // chuyển sang trạng thái "xoá" (6) và báo ra ngoài. Chép danh sách định

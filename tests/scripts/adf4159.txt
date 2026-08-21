@@ -1,0 +1,33 @@
+# Kịch bản mẫu: mở cửa sổ "Điều khiển ADF4159", xem hai tab của nó, rồi vặn thử
+# một bộ tham số quét tần và chụp lại phần thanh ghi.
+#
+# Cần bảng cổng gửi đã có một dòng "Command" (mặc định đã có sẵn), nếu không thì
+# nút Ghi nào cũng hụt và hiện dòng chữ đỏ.
+
+tab "Điều khiển"
+wait 300
+
+click "Điều khiển ADF4159"
+wait 500
+windows
+
+shot /tmp/adf4159-chinh.png #adf4159
+
+# Sang tab quét tần và đặt một nhánh quét: 200 bước, DEV 20972, DEVoff 4.
+tab "Quét tần và dịch khoá"
+wait 300
+set "Từ độ lệch tần (DEV)" 20972
+set "Số mũ độ lệch tần (DEVoff)" 4
+set "Số bước (Steps)" 200
+set "CLK1" 250
+wait 300
+
+shot /tmp/adf4159-quettan.png #adf4159
+
+# Bật quét tần rồi ghi cả tám thanh ghi.
+set "Quét tần" "1. Bật"
+wait 200
+click "Ghi cả 8 thanh ghi (một gói)"
+wait 300
+
+shot /tmp/adf4159-daghi.png #adf4159

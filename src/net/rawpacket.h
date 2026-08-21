@@ -30,10 +30,18 @@ inline constexpr quint32 kCategoryP = 0x30180u;
 
 inline constexpr int kPlotsP = 64;                ///< Data_P[64]
 inline constexpr int kWordsP = 7 + kPlotsP + 1;   ///< 72 từ
-inline constexpr int kSizeP  = kWordsP * 4;
+inline constexpr int kSizeP  = kWordsP * 4;       ///< 72*4 = 288 byte
 
-/// Data_P[0] là từ tiêu đề chu kỳ, nên tối đa còn 63 điểm dấu.
-inline constexpr int kMaxPlots = kPlotsP - 1;
+// Trường Length theo mô tả giao thức là **số byte**, tức kSizeV và kSizeP.
+// Nhưng **cố ý không kiểm tra trường này** và cũng không dùng nó để cắt gói:
+// nguồn phát mỗi nơi ghi một kiểu — đài thật ghi số từ (72 và 1031), có nguồn
+// để thẳng 0 — mà không nguồn nào trong số đó là gói hỏng. Gói hợp lệ hay không
+// xét bằng đủ số trường (cỡ datagram = kSizeV/kSizeP) cùng Header và Category;
+// còn nội dung thì xét theo logic của từng trường, ví dụ 12 bit thấp của
+// Azimuth luôn nằm trong 0..4095 nên chỉ việc che bit là xong.
+
+/// Cả 64 ô Data_P đều là điểm dấu — xem chú thích của decodeRawP().
+inline constexpr int kMaxPlots = kPlotsP;
 
 /// Số ô cự ly trong một chu kỳ. Trùng với số điểm biên độ của RAW_V (10 bit
 /// cự ly trong Data_P cũng cho đúng dải này), nên cùng một phép quy đổi dùng
@@ -173,41 +181,41 @@ struct RawPlot {
 /// riêng việc cấp phát đã tốn hơn cả việc xử lý.
 struct RawPCycle {
     quint32 serial  = 0;
-    quint32 azimuth = 0;    ///< trường Azimuth của gói, 0..4095
-    quint32 azm     = 0;    ///< phương vị trong Data_P[0], bit 0..11
-    bool    azmValid = false; ///< Data_P[0] có bit 31 = 1 như mô tả giao thức
-    qint32  count   = 0;    ///< số plot thực sự có trong gói, 0..63
+    quint32 azimuth = 0;    ///< phương vị encoder của chu kỳ, 0..4095
+    qint32  count   = 0;    ///< số plot thực sự có trong gói, 0..64
     std::array<RawPlot, kMaxPlots> plots{};
-
-    /// Phương vị dùng để xử lý. Ưu tiên Data_P[0] (thuật toán tâm chùm đọc ở
-    /// đó), nhưng nếu từ đó không mang dấu đầu chu kỳ thì lùi về trường
-    /// Azimuth của gói — thà lấy trường kia còn hơn gom chùm quanh phương vị 0.
-    quint32 workAzimuth() const { return azmValid ? azm : azimuth; }
 };
 
-/// Giải mã RAW_P. Cách tách bit theo đúng mô tả giao thức:
+/// Giải mã RAW_P.
 ///
-///     Data_P[0]      bit 0..11  phương vị encoder
+///     Azimuth        bit 0..11  phương vị encoder
+///                    bit 12..30 số đếm chu kỳ, tăng dần
 ///                    bit 31     =1, dấu đầu chu kỳ
-///     Data_P[1..63]  bit 0..15  amplitude
+///     Data_P[0..63]  bit 0..15  amplitude
 ///                    bit 16..25 ô cự ly
 ///                    bit 26..30 dopler
 ///                    bit 31     =0, dấu điểm dấu
+///
+/// Khác mô tả giao thức ở một điểm: **cả 64 ô Data_P đều là điểm dấu**, từ đầu
+/// chu kỳ nằm ngay trong ô Azimuth chứ không phải ở Data_P[0]. Đo trên hai bản
+/// ghi của đài thật — 165606 gói ngày 10/08/2026 và 12011 gói ngày 03/08 — bit
+/// 31 của Azimuth bằng 1 ở **mọi** gói, còn trong cả 10,6 triệu ô Data_P thì
+/// không ô nào có bit 31 bằng 1; số ô khác 0 luôn đúng bằng Num_P và luôn bắt
+/// đầu từ Data_P[0]. Đọc plot từ Data_P[1] như mô tả cũ thì mất điểm dấu đầu
+/// của mọi chu kỳ và sinh thêm một điểm dấu rỗng ở ô cự ly 0.
 inline void decodeRawP(const char *data, RawPCycle &out)
 {
-    out.serial  = word(data, 3);
-    out.azimuth = word(data, 5) % kAzimuthSteps;
+    out.serial = word(data, 3);
 
-    const quint32 head = word(data, 7);        // Data_P[0]
-    out.azm      = head & 0x0fffu;
-    out.azmValid = (head & 0x80000000u) != 0;
+    // Chỉ lấy 12 bit phương vị: phần trên của ô này là số đếm chu kỳ và dấu đầu
+    // chu kỳ, không phải góc.
+    out.azimuth = word(data, 5) & 0x0fffu;
 
-    // Num_P là số plot; Data_P[0] không phải plot nên trần thật sự là 63. Gói
-    // hỏng khai Num_P lớn hơn thì cắt chứ không đọc lố mảng.
+    // Gói hỏng khai Num_P lớn hơn số ô thì cắt chứ không đọc lố mảng.
     out.count = qBound(0, int(word(data, 6)), kMaxPlots);
 
     for (int i = 0; i < out.count; ++i) {
-        const quint32 w = word(data, 8 + i);   // Data_P[1 + i]
+        const quint32 w = word(data, 7 + i);   // Data_P[i]
         RawPlot &p = out.plots[size_t(i)];
         p.amplitude = quint16(w & 0xffffu);
         p.range     = quint16((w >> 16) & 0x03ffu);

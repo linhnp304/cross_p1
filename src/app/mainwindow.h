@@ -14,6 +14,7 @@
 
 #include <deque>
 
+class Adf4159Window;
 class AScope;
 class BeamParamsDialog;
 class ColorsTab;
@@ -61,6 +62,14 @@ private:
     void applyEndpoints(const QVector<NetEndpoint> &rx);
     void applyTxEndpoints(const QVector<NetEndpoint> &tx);
 
+    /// Ô "Tự động cấu hình cổng nhận Status..." vừa đổi.
+    void applyStatusFollowsCommand(bool on);
+
+    /// Bảng cổng nhận đang có hiệu lực. Khác m_params.rx đúng một chỗ: khi
+    /// statusFollowsCommand đang bật thì dòng "Status" bị bỏ ra, vì trạng thái
+    /// lúc ấy về trên chính socket gửi lệnh (xem UdpSender::statusReceived).
+    QVector<NetEndpoint> activeRxEndpoints() const;
+
     /// Bảng cổng gửi đang có hiệu lực. Dòng Plot/Track chỉ mở khi công tắc
     /// chung "Bắt đầu gửi dữ liệu" đang bật; dòng Command thì không phụ thuộc
     /// nó — lệnh điều khiển đi ra vì trắc thủ vừa vặn một nút, chứ không phải
@@ -69,6 +78,21 @@ private:
 
     /// Gửi một gói lệnh điều khiển ra các dòng "Command".
     void sendCommand(int group, const QByteArray &datagram);
+
+    /// Cùng đường đi ấy, cho hai gói lệnh của kit tạo tín hiệu ADF4159.
+    void sendAdfCommand(int kind, const QByteArray &datagram);
+
+    /// Câu nhắc khi bảng cổng gửi chưa có dòng "Command" nào dùng được. Hai
+    /// đường gửi lệnh dùng chung một câu và chung một cờ "đã nhắc rồi".
+    static QString noCommandPortMsg();
+    void warnNoCommandPort();
+
+    /// Mở cửa sổ điều khiển kit ADF4159, dựng nó ở lần mở đầu tiên.
+    void showAdf4159();
+
+    /// Đưa một gói trạng thái vừa nhận tới đúng nơi đọc nó. Tab "Điều khiển"
+    /// nhận trước; gói nào nó không nhận thì thử tới cửa sổ ADF4159.
+    void routeStatus(const QByteArray &datagram);
 
     /// Đẩy cách tính Video[1024] xuống luồng nhận dữ liệu.
     void pushVideoScale();
@@ -194,6 +218,7 @@ private:
     TrackParamsDialog *m_trackDialog = nullptr;
     PlotListWindow    *m_plotList    = nullptr;
     TrackInfoPopup    *m_trackInfo   = nullptr;
+    Adf4159Window     *m_adfWindow   = nullptr;
 
     QLabel       *m_timeLabel   = nullptr;
     QLabel       *m_cursorLabel = nullptr;

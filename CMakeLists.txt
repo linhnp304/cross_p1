@@ -31,7 +31,8 @@ qt_standard_project_setup()
 #
 #   app     khởi tạo, cửa sổ chính, hai file cấu hình
 #   net     giao thức gói tin, luồng nhận UDP, phía gửi
-#   proc    tách tâm chùm xung, bám quỹ đạo — thuần thuật toán, không đụng Qt Widgets
+#   proc    tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159 — thuần thuật
+#           toán, không đụng Qt Widgets
 #   record  ghi lưu và phát lại
 #   maps    nền bản đồ số, chiếu toạ độ
 #   ui      các tab, cửa sổ con và phần vẽ
@@ -55,6 +56,7 @@ set(AR_SOURCES
     src/app/mainwindow.h
 
     # --- net: giao thức gói tin, nhận và gửi UDP ---
+    src/net/adfproto.h
     src/net/cmdproto.h
     src/net/packetio.h
     src/net/rawpacket.h
@@ -63,7 +65,9 @@ set(AR_SOURCES
     src/net/udpsender.cpp
     src/net/udpsender.h
 
-    # --- proc: tách tâm chùm xung và bám quỹ đạo ---
+    # --- proc: tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159 ---
+    src/proc/adf4159.cpp
+    src/proc/adf4159.h
     src/proc/beamcenter.cpp
     src/proc/beamcenter.h
     src/proc/plotstore.h
@@ -94,6 +98,8 @@ set(AR_SOURCES
     src/maps/vectormap.h
 
     # --- ui: các tab, cửa sổ và phần vẽ ---
+    src/ui/adf4159window.cpp
+    src/ui/adf4159window.h
     src/ui/ascope.cpp
     src/ui/ascope.h
     src/ui/beamparamsdialog.cpp

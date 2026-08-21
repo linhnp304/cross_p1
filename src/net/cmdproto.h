@@ -53,6 +53,10 @@ struct Option {
 ///
 /// `factor` là cầu nối giữa hai thang số: **giá trị trong gói = round(giá trị
 /// trên giao diện × factor)**. Trường không quy đổi thì factor = 1.
+///
+/// `dividend` khác 0 thì hai thang số nối với nhau **nghịch đảo** thay vì tỉ
+/// lệ: **giá trị trong gói = round(dividend / giá trị trên giao diện)**, và
+/// `factor` không dùng tới.
 struct Field {
     const char *name   = "";     ///< tên trường trong mô tả giao thức
     const char *label  = "";     ///< nhãn trên giao diện
@@ -62,16 +66,30 @@ struct Field {
     double      lo     = 0.0;    ///< dải trên giao diện
     double      hi     = 4294967295.0;
     double      factor = 1.0;
+    double      dividend = 0.0;  ///< khác 0: quy đổi nghịch đảo
     int         decimals = 0;
     bool        isSigned = false;
-    bool        isFloat  = false;
     Format      format   = Format::Number;
     const Option *options = nullptr;
     int           optionCount = 0;
 
+    /// Giá trị trong gói quay vòng theo modulo này; 0 là không quay vòng. Dùng
+    /// cho các trường góc: 360 độ quy ra đúng 4096 nấc encoder, vượt dải 0..4095
+    /// mà mô tả giao thức nêu, trong khi 4096 nấc lại chính là 0 độ.
+    int wrap = 0;
+
+    /// Trường lấy giá trị gửi đi từ một trường của gói **khác**: số hiệu group
+    /// và vị trí trường bên đó. -1 là trường bình thường. Xem mirrored().
+    int mirrorGroup = -1;
+    int mirrorIndex = -1;
+
+    /// Giá trị gửi đi lấy từ gói khác chứ không phải từ ô của chính nó.
+    bool mirrors() const { return mirrorGroup >= 0; }
+
     /// Trường này có gửi giá trị đi trong lệnh không. Trường chỉ nhận trạng
-    /// thái thì lệnh gửi đi gán = 0, đúng mô tả giao thức.
-    bool sends() const { return widget != Widget::ReadOnly; }
+    /// thái thì lệnh gửi đi gán = 0, đúng mô tả giao thức — trừ trường soi giá
+    /// trị gói khác: ô của nó khoá, nhưng giá trị vẫn phải đi trong lệnh.
+    bool sends() const { return widget != Widget::ReadOnly || mirrors(); }
 
     /// Có chỗ cho người dùng đụng vào không.
     bool editable() const
@@ -164,19 +182,52 @@ constexpr Field scaledSigned(const char *name, const char *label, quint32 def,
     return f;
 }
 
-/// Trường mang thẳng số thực 4 byte (IEEE 754), không quy đổi.
-constexpr Field float32(const char *name, const char *label, double lo,
-                        double hi, int decimals, const char *tip = "")
+/// Ô nhập số thực quy đổi **nghịch đảo**: giá trị trong gói =
+/// round(dividend / giá trị trên giao diện).
+///
+/// Số 0 ở một đầu ứng với số 0 ở đầu kia chứ không phải vô cùng — xem
+/// toUi()/fromUi().
+constexpr Field reciprocal(const char *name, const char *label, quint32 def,
+                           double lo, double hi, double dividend, int decimals,
+                           const char *tip = "")
 {
     Field f;
     f.name     = name;
     f.label    = label;
     f.tip      = tip;
     f.widget   = Widget::SpinF;
+    f.def      = def;
     f.lo       = lo;
     f.hi       = hi;
+    f.dividend = dividend;
     f.decimals = decimals;
-    f.isFloat  = true;
+    return f;
+}
+
+/// Ô khoá, nhưng giá trị **gửi đi** lấy thẳng từ một trường của gói khác.
+///
+/// Trên giao diện giống hệt readOnly(): ô xám, chỉ hiện giá trị trạng thái đài
+/// trả về, người dùng không nhập được. Khác ở lúc đóng gói lệnh — thay vì gửi 0
+/// như trường chỉ nhận trạng thái, nó gửi giá trị đang có của trường được trỏ
+/// tới. Quy đổi hiển thị (factor/decimals) vẫn phải khai đủ ở đây, vì ô này hiện
+/// giá trị theo đơn vị của **chính nó**.
+/// Dải lo/hi vẫn phải khai dù ô không nhập được: fromUi() kẹp theo dải này, mà
+/// để mặc định là 0..2^32 thì mọi giá trị âm bị kẹp về 0.
+constexpr Field mirrored(const char *name, const char *label, int group,
+                         int index, double lo, double hi, double factor,
+                         int decimals, const char *tip = "")
+{
+    Field f;
+    f.name        = name;
+    f.label       = label;
+    f.tip         = tip;
+    f.widget      = Widget::ReadOnly;
+    f.lo          = lo;
+    f.hi          = hi;
+    f.factor      = factor;
+    f.decimals    = decimals;
+    f.mirrorGroup = group;
+    f.mirrorIndex = index;
     return f;
 }
 
@@ -190,6 +241,32 @@ constexpr Field readOnly(const char *name, const char *label,
     f.widget = Widget::ReadOnly;
     f.format = format;
     return f;
+}
+
+/// Số hiệu group, cũng là chỉ số trong bảng kPackets ở cuối tệp. Khai báo ngay
+/// đây chứ không cạnh bảng ấy, vì một trường có thể trỏ sang group khác — xem
+/// mirrored().
+enum Group { GroupAnten = 0, GroupCommon, GroupDspR, GroupDspS, GroupCount };
+
+/// So tên trường lúc biên dịch. Chỉ dùng cho fieldIndex(), nên không cần lo
+/// con trỏ rỗng: mọi trường trong bảng đều có tên.
+constexpr bool sameName(const char *a, const char *b)
+{
+    while (*a != '\0' && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+
+/// Vị trí một trường trong bảng, tra bằng **tên trong mô tả giao thức**. Trỏ
+/// sang trường khác bằng tên chứ không bằng số: chèn thêm một trường vào giữa
+/// bảng là mọi chỉ số viết tay sẽ trỏ lệch mà không có gì báo.
+template <int N>
+constexpr int fieldIndex(const Field (&fields)[N], const char *name)
+{
+    for (int i = 0; i < N; ++i) {
+        if (sameName(fields[i].name, name))
+            return i;
+    }
+    return -1;
 }
 
 // --- CMD_ANTEN: điều khiển ăng ten ------------------------------------------
@@ -226,6 +303,33 @@ inline constexpr double kEncPerDeg = 4096.0 / 360.0;
 /// hai chữ số thì gõ 359.00 mở ra lần sau thành 359.03.
 inline constexpr int kAngleDecimals = 1;
 
+/// Số nấc encoder một vòng. Giá trị trong gói chạy 0..4095.
+inline constexpr int kEncSteps = 4096;
+
+/// Ô nhập một góc: giao diện **0..360 độ**, trong gói là **nấc encoder 0..4095**.
+///
+/// Cho quay vòng vì 360 độ quy ra đúng 4096 nấc — vượt dải mà mô tả giao thức
+/// nêu, mà 4096 nấc lại chính là 0 độ. Quay vòng thì gõ 360 ra 0 nấc, đúng cả
+/// về góc lẫn về dải; không quay vòng thì gói mang một giá trị đài không hiểu.
+constexpr Field angle(const char *name, const char *label, quint32 def,
+                      const char *tip = "")
+{
+    Field f = scaled(name, label, def, 0.0, 360.0, kEncPerDeg, kAngleDecimals, tip);
+    f.wrap = kEncSteps;
+    return f;
+}
+
+/// Như angle() nhưng ô bị khoá và giá trị gửi đi soi từ gói khác — xem
+/// mirrored().
+constexpr Field angleMirrored(const char *name, const char *label, int group,
+                              int index, const char *tip = "")
+{
+    Field f = mirrored(name, label, group, index, 0.0, 360.0, kEncPerDeg,
+                       kAngleDecimals, tip);
+    f.wrap = kEncSteps;
+    return f;
+}
+
 inline constexpr Field kCommonFields[] = {
     radio("DataSend", "Chọn dữ liệu", 0, kDataSend, 4,
           "Chuyển mạch chọn loại dữ liệu để truyền đi"),
@@ -237,15 +341,12 @@ inline constexpr Field kCommonFields[] = {
     spin("Attn", "Steps Attn", 0, 0, 4294967295.0),
     radio("TxEn", "Nối/Tắt phát", 0, kTxEn, 3),
     combo("FilterSL", "Bộ lọc FBeat", 1, 1, 5, "Chọn bộ lọc tương tự FBeat SFC"),
-    scaled("Beta1", "Phương vị đầu (độ)", 0, 0.0, 360.0, kEncPerDeg,
-           kAngleDecimals, "Phương vị đầu rẻ quạt phát"),
+    angle("Beta1", "Phương vị đầu (độ)", 0, "Phương vị đầu rẻ quạt phát"),
     // 4085 nấc = 359.0 độ. Mô tả giai đoạn ghi mặc định 360, nhưng 360 quy ra
-    // 4096 nấc — vượt dải 0..4095 mà chính nó nêu, và 4096 nấc lại chính là 0
-    // độ. 359 là giá trị lớn nhất còn nằm gọn trong dải.
-    scaled("Beta2", "Phương vị cuối (độ)", 4085, 0.0, 360.0, kEncPerDeg,
-           kAngleDecimals, "Phương vị cuối rẻ quạt phát"),
-    scaledSigned("AzmOffset", "Bù góc phương Bắc (độ)", 0, -360.0, 360.0,
-                 kEncPerDeg, kAngleDecimals),
+    // 4096 nấc, tức 0 độ — không phải ý của mô tả. 359 là giá trị lớn nhất còn
+    // nằm gọn trong dải 0..4095.
+    angle("Beta2", "Phương vị cuối (độ)", 4085, "Phương vị cuối rẻ quạt phát"),
+    angle("AzmOffset", "Bù góc phương Bắc (độ)", 0),
 };
 
 // --- CMD_DSP_R: tham số DSP kênh cự ly --------------------------------------
@@ -266,7 +367,12 @@ inline constexpr Field kDspRFields[] = {
     unusedField("DR1"),
     radio("DSPD_Out", "DSPD Output", 0, kDspdOut, 3,
           "Kiểu dữ liệu f beat đầy vào bộ đệm truyền UDP"),
-    float32("ADC_Sample_Rate", "Tần số lấy mẫu ADC (MHz)", 0.0, 100.0, 3),
+    // Giá trị trong gói là **nghịch đảo** của tần số lấy mẫu chứ không phải
+    // chính nó: ADC_Sample_Rate = round(200/Fs), Fs=2 MHz đi ra thành 100. Ô
+    // nhập vẫn là Fs theo MHz, và Fs cũng là con số dùng cho công thức cự ly
+    // (MainWindow::applyStatusToParams) — không phải con số nằm trong gói.
+    reciprocal("ADC_Sample_Rate", "Tần số lấy mẫu ADC (MHz)", 0, 0.0, 100.0,
+               200.0, 3),
     scaled("IZP_ms", "Chu kỳ xung kích trong", 2000000, 0.1, 10000.0, 200000.0, 1),
     unusedField("DR5"),
     radio("IZP_En", "IZP enable", 0, kIzpEn, 4),
@@ -297,8 +403,11 @@ inline constexpr Field kDspRFields[] = {
     scaled("IZP_Zn", "Giữ chậm xung kích ngoài", 4000, 0.0, 21474836.0, 200.0, 2),
     radio("Buffer_En", "Đệm dữ liệu vào", 0, kOffOn, 2,
           "Bỏ/Chọn đệm dữ liệu vào"),
-    scaledSigned("FixEncoder", "Bù góc phương Bắc (độ)", 0, -360.0, 360.0,
-                 kEncPerDeg, kAngleDecimals),
+    // Không có ô nhập riêng: giá trị gửi đi lấy thẳng từ AzmOffset của
+    // CMD_COMMON, còn ô trên giao diện chỉ hiện giá trị đài trả về.
+    angleMirrored("FixEncoder", "Bù góc phương Bắc (độ)", GroupCommon,
+                  fieldIndex(kCommonFields, "AzmOffset"),
+                  "Lấy theo Bù góc phương Bắc của Tham số chung"),
     radio("STF_En", "Chọn SFT suy giảm", 0, kStfEn, 2,
           "Chọn/Bỏ STF suy giảm tín hiệu f beat vùng gần"),
 };
@@ -365,9 +474,6 @@ struct Packet {
     constexpr int size() const { return words() * 4; }
 };
 
-/// Số hiệu group, cũng là chỉ số trong bảng dưới.
-enum Group { GroupAnten = 0, GroupCommon, GroupDspR, GroupDspS, GroupCount };
-
 inline constexpr Packet kPackets[GroupCount] = {
     {"Điều khiển ăng ten",       "anten",  0xa4a3a2a1u, 0x7018u, 0x70180u,
      kAntenFields,  int(std::size(kAntenFields))},
@@ -375,7 +481,7 @@ inline constexpr Packet kPackets[GroupCount] = {
      kCommonFields, int(std::size(kCommonFields))},
     {"Tham số DSP kênh cự ly",   "dspr",   0xd4d3d2d1u, 0x8018u, 0x80180u,
      kDspRFields,   int(std::size(kDspRFields))},
-    {"Tham số DSP kênh tốc độ",  "dsps",   0xd9d8d7d6u, 0x8018u, 0x80180u,
+    {"Tham số DSP kênh tốc độ",  "dsps",   0xe4e3e2e1u, 0x9018u, 0x90180u,
      kDspSFields,   int(std::size(kDspSFields))},
 };
 
@@ -387,6 +493,12 @@ static_assert(kPackets[GroupCommon].size() == 16 * 4, "CMD_COMMON: Length = 16*4
 static_assert(kPackets[GroupDspR].size()   == 29 * 4, "CMD_DSP_R: Length = 29*4");
 static_assert(kPackets[GroupDspS].size()   == 27 * 4, "CMD_DSP_S: Length = 27*4");
 
+// Trường soi giá trị gói khác phải trỏ tới một trường **có thật**: fieldIndex()
+// trả -1 khi không thấy tên, và -1 thì mirrors() coi như trường thường, tức là
+// lệnh sẽ lặng lẽ gửi giá trị của ô đang khoá. Chặn ngay tại đây.
+static_assert(fieldIndex(kCommonFields, "AzmOffset") >= 0,
+              "FixEncoder soi AzmOffset của CMD_COMMON — không còn trường đó nữa");
+
 /// Số trường nhiều nhất của một group — đủ chỗ cho một bộ đệm tĩnh.
 inline constexpr int kMaxFields = 23;
 static_assert(kPackets[GroupDspR].fieldCount <= kMaxFields, "kMaxFields quá nhỏ");
@@ -396,13 +508,14 @@ static_assert(kPackets[GroupDspR].fieldCount <= kMaxFields, "kMaxFields quá nh�
 /// Giá trị hiện trên giao diện, suy ra từ giá trị trong gói tin.
 inline double toUi(const Field &f, quint32 raw)
 {
-    if (f.isFloat) {
-        float v = 0.0f;
-        std::memcpy(&v, &raw, sizeof(v));
-        return double(v);
-    }
+    if (f.dividend != 0.0)
+        return raw == 0 ? 0.0 : f.dividend / double(raw);
     if (f.isSigned)
         return double(qint32(raw)) / f.factor;
+    // Trường quay vòng: đài trả về một giá trị ngoài dải thì đưa về trong dải
+    // chứ không hiện một góc lớn hơn 360 độ.
+    if (f.wrap > 0)
+        raw %= quint32(f.wrap);
     return double(raw) / f.factor;
 }
 
@@ -411,16 +524,21 @@ inline double toUi(const Field &f, quint32 raw)
 inline quint32 fromUi(const Field &f, double ui)
 {
     ui = qBound(f.lo, ui, f.hi);
-    if (f.isFloat) {
-        const float v = float(ui);
-        quint32 bits = 0;
-        std::memcpy(&bits, &v, sizeof(bits));
-        return bits;
+    if (f.dividend != 0.0) {
+        // Số 0 đi thẳng thành số 0, không phải vô cùng: mặc định của trường là
+        // 0, và đài cũng trả về 0 khi chưa đặt tần số lấy mẫu.
+        if (ui <= 0.0)
+            return 0;
+        return quint32(qBound(0.0, std::round(f.dividend / ui), 4294967295.0));
     }
     const double raw = std::round(ui * f.factor);
     if (f.isSigned)
         return quint32(qint32(qBound(-2147483648.0, raw, 2147483647.0)));
-    return quint32(qBound(0.0, raw, 4294967295.0));
+
+    const quint32 out = quint32(qBound(0.0, raw, 4294967295.0));
+    // 360 độ ra 4096 nấc: quay vòng về 0 để giá trị trong gói luôn nằm trong
+    // dải mà mô tả giao thức nêu.
+    return f.wrap > 0 ? out % quint32(f.wrap) : out;
 }
 
 /// Giá trị mặc định của cả một group, dạng gói tin.
@@ -499,8 +617,10 @@ inline QByteArray buildCommand(const Packet &p, const quint32 *values,
 
 /// Gói này là trạng thái phản hồi của lệnh nào? nullptr nếu không phải.
 ///
-/// Phân biệt theo **Header** trước, vì CMD_DSP_R và CMD_DSP_S dùng chung cả hai
-/// giá trị Category — chỉ Header và độ dài là khác nhau.
+/// Xét cả Header lẫn Category chứ không riêng cái nào: từ 11/08/2026 bốn gói đã
+/// khác nhau ở cả hai (trước đó CMD_DSP_R và CMD_DSP_S dùng chung Category, chỉ
+/// Header là phân biệt được). Xét cả hai thì mô tả giao thức có đổi lại kiểu ấy
+/// nữa cũng không phải sửa hàm này.
 inline const Packet *statusPacket(const char *data, int len)
 {
     if (len < 12)

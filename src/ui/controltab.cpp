@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QTime>
 #include <QVBoxLayout>
@@ -79,6 +80,13 @@ ControlTab::ControlTab(QWidget *parent)
 
     for (int g = 0; g < cmdproto::GroupCount; ++g)
         root->addWidget(buildGroup(g));
+
+    // Kit tạo tín hiệu ADF4159 không nằm trong bốn gói lệnh trên: nó có bộ
+    // thanh ghi riêng, nhiều tới mức phải một cửa sổ riêng mới đủ chỗ.
+    auto *adf = new QPushButton(tr("Điều khiển ADF4159"), this);
+    adf->setToolTip(tr("Mở cửa sổ điều khiển kit tạo tín hiệu ADF4159"));
+    connect(adf, &QPushButton::clicked, this, &ControlTab::adf4159Requested);
+    root->addWidget(adf);
 
     m_status = new QLabel(this);
     m_status->setWordWrap(true);
@@ -255,6 +263,16 @@ void ControlTab::sendGroup(int group)
         const Field &f = p.fields[i];
         const Cell  &c = ui.cells[i];
 
+        // Trường soi giá trị gói khác (FixEncoder lấy theo AzmOffset của
+        // CMD_COMMON): ô của nó bị khoá và chỉ hiện trạng thái trả về, nên giá
+        // trị gửi đi lấy từ **lần gửi lệnh gần nhất** của gói kia, không phải từ
+        // ô đang hiện trên giao diện. Chưa gửi lệnh nào thì đó là giá trị mặc
+        // định — xem m_lastSent.
+        if (f.mirrors()) {
+            m_values.v[group][i] = m_lastSent.v[f.mirrorGroup][f.mirrorIndex];
+            continue;
+        }
+
         if (c.spin)
             m_values.v[group][i] = cmdproto::fromUi(f, c.spin->value());
         else if (c.combo && c.combo->currentIndex() >= 0)
@@ -268,6 +286,11 @@ void ControlTab::sendGroup(int group)
     const quint32 timeMs = quint32(QTime::currentTime().msecsSinceStartOfDay());
     const QByteArray dg =
         cmdproto::buildCommand(p, m_values.v[group], ui.cmdSerial, timeMs);
+
+    // Chốt lại "đã ra lệnh cho đài những gì" — trường soi giá trị gói khác đọc
+    // ở đây chứ không đọc ô trên giao diện.
+    for (int i = 0; i < p.fieldCount; ++i)
+        m_lastSent.v[group][i] = m_values.v[group][i];
 
     emit commandReady(group, dg);
     emit valuesChanged();

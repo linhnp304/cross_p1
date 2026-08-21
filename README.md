@@ -25,7 +25,7 @@ Mỗi thư mục con của `src/` là một tầng của phần mềm:
 |---|---|
 | `app/` | Khởi tạo, cửa sổ chính, hai file cấu hình (`AppSettings`, `AppParams`) |
 | `net/` | Giao thức gói tin (`rawpacket`, `packetio`, `cmdproto`), luồng nhận UDP, phía gửi |
-| `proc/` | Tách tâm chùm xung và bám quỹ đạo — thuần thuật toán, không đụng Qt Widgets |
+| `proc/` | Tách tâm chùm xung, bám quỹ đạo, tính thanh ghi ADF4159 — thuần thuật toán, không đụng Qt Widgets |
 | `record/` | Ghi lưu và phát lại: định dạng `.rec`, luồng ghi đĩa, danh mục phiên |
 | `maps/` | Nền bản đồ số: tile, shapefile, chiếu toạ độ, tính phương vị / cự ly |
 | `ui/` | Các tab, cửa sổ con và phần vẽ |
@@ -62,7 +62,7 @@ Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần 
 | File | Chứa gì | Của ai |
 |---|---|---|
 | `settings.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video, kích thước và màu các đối tượng đồ hoạ, danh sách phân loại mục tiêu | Trắc thủ |
-| `params.json` | Tham số kỹ thuật (Fs, B, Tc, Multi_V), bảng rẻ quạt xử lý, bảng vùng cấm khởi tạo, tham số hai thuật toán xử lý, giá trị các [lệnh điều khiển](#lệnh-điều-khiển), và danh sách cổng UDP | Người lắp đặt |
+| `params.json` | Tham số kỹ thuật (Fs, B, Tc, Multi_V), bảng rẻ quạt xử lý, bảng vùng cấm khởi tạo, tham số hai thuật toán xử lý, giá trị các [lệnh điều khiển](#lệnh-điều-khiển), tham số [kit ADF4159](#điều-khiển-kit-tạo-tín-hiệu-adf4159), và danh sách cổng UDP | Người lắp đặt |
 
 > File cấu hình hiển thị trước đây tên là `mx01.json`. Còn file cũ mà chưa có
 > `settings.json` thì phần mềm đọc file cũ rồi ghi sang tên mới ở lần lưu kế
@@ -164,6 +164,30 @@ Cổng gửi chỉ thực sự mở khi nút chung đang bật **và** dòng đ�
   chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
 - Bảng cổng **nhận** chỉ sửa được lúc đã dừng kết nối. Bảng cổng **gửi** thì sửa
   được bất cứ lúc nào — xem [Gửi dữ liệu đi hệ thống khác](#gửi-dữ-liệu-đi-hệ-thống-khác).
+
+#### Cổng nhận Status
+
+Dưới bảng có ô **Tự động cấu hình cổng nhận Status theo cổng gửi lệnh điều khiển
+Command**, mặc định **bật**.
+
+Đài trả trạng thái về **đúng địa chỉ và cổng đã gửi lệnh tới nó**, chứ không phải
+tới một cổng cố định. Mà cổng nguồn ấy thường do hệ điều hành tự chọn (`LocalPort`
+của dòng `Command` để `0`) nên mỗi lần chạy một số khác nhau — không có cách nào
+khai trước trong bảng cổng nhận. Hai socket cũng không cùng bind được một cổng,
+nên chính socket đã gửi câu hỏi phải là nơi nghe câu trả lời.
+
+| Ô | Nghe trạng thái ở đâu | Dòng `Status` trong bảng |
+|---|---|---|
+| **bật** (mặc định) | ngay trên socket gửi lệnh của dòng `Command` | bị bỏ qua, hiện mờ |
+| tắt | cổng của dòng `Status` trong bảng | có hiệu lực |
+
+Bật thì đường trạng thái **không phụ thuộc nút *Bắt đầu nhận dữ liệu***, giống
+như chiều gửi lệnh không phụ thuộc nút *Bắt đầu gửi dữ liệu*: vặn một nút bên tab
+*Điều khiển* là thấy đài trả lời ngay. Số cổng hệ điều hành vừa chọn hiện ở cuối
+dòng trạng thái của tab (`Status theo cổng lệnh 54563: 3 gói`).
+
+Tắt thì nhớ để `LocalPort` của dòng `Status` **khác** `LocalPort` của dòng
+`Command` — trùng nhau thì cổng nhận báo lỗi không mở được.
 
 Dữ liệu `RAW_V` (1024 điểm biên độ mỗi gói, ~400 gói/giây) hiện ở hai nơi: nền
 tạp trên bản đồ (panel 1) và đường biên độ trên cửa sổ biên độ (panel 2.2).
@@ -580,8 +604,9 @@ group đó đi ra ngay. Ô nhập tắt `keyboardTracking`, nên gõ dở một 
 phát lệnh — chỉ khi rời ô, bấm `Enter`, hay bấm mũi tên.
 
 Lệnh đi ra các dòng **`Command`** trong bảng cổng gửi; trạng thái phản hồi về
-dòng **`Status`** trong bảng cổng nhận (mặc định 6003). Chưa cấu hình được cổng
-lệnh thì có một thông báo — hộp thoại đúng một lần, kèm dòng chữ đỏ ở cuối tab.
+**đúng cổng nguồn của gói lệnh** — xem [Cổng nhận Status](#cổng-nhận-status).
+Chưa cấu hình được cổng lệnh thì có một thông báo — hộp thoại đúng một lần, kèm
+dòng chữ đỏ ở cuối tab.
 
 ### Đọc phần báo lệch
 
@@ -613,10 +638,110 @@ không phải chờ đài gửi trạng thái về.
 python3 tools/fake_control.py --disobey
 ```
 
-Đóng vai đài: nghe cổng lệnh 6103, giải mã gói vừa nhận rồi trả về gói trạng
-thái tương ứng ở cổng 6003. `--disobey` cố tình trả về khác lệnh ở vài trường để
-thấy phần báo lệch bằng chữ đỏ; bỏ nó đi thì đài "nghe lời" và mọi thứ sạch.
-`AT_Azm` / `Beta_Back` trả về một phương vị quay đều 6 vòng/phút.
+Đóng vai đài: nghe cổng lệnh 6103, giải mã gói vừa nhận rồi trả gói trạng thái
+tương ứng về **đúng nơi gói lệnh đi ra**, như đài thật ([Cổng nhận
+Status](#cổng-nhận-status)). Đưa `--status-port 6003` thì quay lại kiểu cũ — trả
+về một cổng cố định, để thử nhánh ô tự động đang tắt. `--disobey` cố tình trả về
+khác lệnh ở vài trường để thấy phần báo lệch bằng chữ đỏ; bỏ nó đi thì đài "nghe
+lời" và mọi thứ sạch.
+`AT_Azm` / `Beta_Back` trả về một phương vị quay đều 6 vòng/phút. Công cụ này trả
+lời cả hai gói của kit ADF4159 dưới đây.
+
+## Điều khiển kit tạo tín hiệu ADF4159
+
+Nút **Điều khiển ADF4159** ở cuối tab *Điều khiển* mở một cửa sổ riêng: dựng lại
+phần mềm gốc của Analog Devices (*ADF4158/9 PLL Software*) theo gam màu tối của
+phần mềm này, và thay đường USB của nó bằng hai gói lệnh UDP.
+
+| Gói tin | Header | Category lệnh / trạng thái | Mang gì |
+|---|---|---|---|
+| `CMD_ADF4159_REG8` | `0xADF4159A` | `0x5018` / `0x50180` | cả tám thanh ghi |
+| `CMD_ADF4159_REG` | `0xADF4159B` | `0x6018` / `0x60180` | đúng một thanh ghi |
+
+Lệnh đi ra chính các dòng **`Command`** của bảng cổng gửi, trạng thái về theo
+đúng đường của bốn gói lệnh ở trên ([Cổng nhận Status](#cổng-nhận-status)) — kit
+nằm trong cùng một đài nên dùng chung đường ấy, không phải cấu hình thêm gì.
+
+Gói một thanh ghi **không có trường "số hiệu thanh ghi"**: ba bit thấp nhất của
+chính từ 32 bit đó đã là số hiệu (000..111), đúng quy ước của con chip. Nhờ vậy
+phần đọc trạng thái cũng biết ngay gói trả về nói về thanh ghi nào.
+
+### Cách dùng
+
+Khác hẳn tab *Điều khiển* — ở đó vặn một ô là lệnh đi ra ngay, còn ở đây **phải
+bấm nút Ghi**. Lý do là của chính con chip: ghi `R0` mới là lúc kit chốt tần số,
+nên "đổi tới đâu gửi tới đó" sẽ đẩy nó qua một loạt trạng thái nửa vời.
+
+Ô hex của thanh ghi nào **chưa ghi** kể từ lần đổi gần nhất thì có nền xanh lá,
+giống hệt phần mềm gốc — nhìn là biết còn thanh ghi nào đang nằm trên màn hình
+mà chưa xuống tới kit. Dòng số dưới mỗi ô là giá trị kit trả về, **chữ đỏ** khi
+nó khác giá trị vừa ghi xuống.
+
+Ba nút gửi cả bộ:
+
+| Nút | Làm gì |
+|---|---|
+| Ghi cả 8 thanh ghi (một gói) | một gói `CMD_ADF4159_REG8` |
+| Ghi lần lượt 7, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0 | mười một gói `CMD_ADF4159_REG` nối nhau |
+| Về giá trị mặc định | chỉ đổi các ô trên màn hình, **không** gửi gì |
+
+Dãy `7, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0` là thứ tự của phần mềm gốc và là thứ tự
+duy nhất đúng: `R0` vào cuối cùng. Hai số 6, hai số 5, hai số 4 là vì `R4`, `R5`,
+`R6` mỗi cái có hai bộ giá trị — nhánh quét lên và nhánh thứ hai, phân biệt bằng
+`CLK DIV SEL` (R4 DB6), `DEV SEL` (R5 DB23) và `STEP SEL` (R6 DB23). Ba thanh ghi
+nhánh 2 nằm ở hàng dưới của thanh thanh ghi và chỉ gửi lẻ được, vì lệnh tám thanh
+ghi không có chỗ cho chúng.
+
+Nút **Bật/tắt quét tần** (tab *Quét tần và dịch khoá*) lật bit `RAMP ON` rồi ghi
+ngay `R0`, không đụng bảy thanh ghi còn lại.
+
+### Tham số và thanh ghi
+
+Cửa sổ nhận **tham số** (tần số VCO, tần số chuẩn, số bước quét...) rồi tự tính
+ra tám thanh ghi; `params.json` cũng lưu tham số chứ không lưu thanh ghi, vì
+chiều ngược lại — tách một từ 32 bit ra thành "tần số VCO 6000 MHz" — không có
+lời giải duy nhất.
+
+Các công thức lấy thẳng từ tài liệu ADF4159 (`docs-local/ADF4159`):
+
+```
+fPFD  = REFIN × (1 + D) / (R × (1 + T))
+RFout = (INT + FRAC/2^25) × fPFD
+fDEV  = (fPFD / 2^25) × DEV × 2^DEV_OFFSET
+Timer = CLK1 × CLK2 / fPFD
+Delay = Delay_Word / fPFD  (× CLK1 nếu chọn nhịp PFD × CLK1)
+```
+
+Bộ giá trị mặc định đúng bằng bộ mà phần mềm gốc mở lên đã có sẵn, nên tám thanh
+ghi tính ra phải khớp từng số với ảnh chụp phần mềm đó — `src/proc/adf4159.h`
+kiểm điều này bằng `static_assert`, sai một bit là **hỏng biên dịch** chứ không
+phải đợi tới lúc kit phát ra sai tần số.
+
+Ba điều kiện tài liệu nói thẳng ra được kiểm lúc chạy và hiện chữ đỏ dưới nhóm
+*Tham số RF*: `INT` nhỏ hơn mức bộ chia trước cho phép (23 với 4/5, 75 với 8/9),
+trên 8 GHz mà còn để bộ chia trước 4/5, và `CLK1` với `CLK2` cùng bằng 1.
+
+### Hai thứ có trong phần mềm gốc mà ở đây không có
+
+**Pulse TXdata** và **Readback** — cả hai đều thao tác thẳng lên chân của bo
+mạch qua bộ chuyển USB, mà đường lệnh ở đây là UDP: hai gói trên chỉ chở giá trị
+thanh ghi, không có chỗ diễn đạt "nhấp một xung lên chân TXDATA" hay "đọc ngược
+INT/FRAC ra". Cần tới chúng thì phải bổ sung giao thức trước.
+
+### Kiểm tra cửa sổ ADF4159
+
+```bash
+cmake --build build --target ar0101-guidrv
+```
+
+```bash
+cd build && ./ar0101-guidrv ../tests/scripts/adf4159.txt
+```
+
+Kịch bản mở cửa sổ, đặt một nhánh quét theo đúng ví dụ FMCW trong tài liệu
+(`DEV = 20972`, `DEVoff = 4`, 200 bước, `CLK1 = 250`) rồi chụp lại ba ảnh vào
+`/tmp`. Muốn thấy cả chiều trạng thái trả về thì chạy `tools/fake_control.py`
+song song và bấm **Bắt đầu nhận dữ liệu** ở tab *Kết nối* trước.
 
 ## Ghi lưu và phát lại
 

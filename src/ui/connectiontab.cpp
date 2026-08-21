@@ -8,6 +8,7 @@
 #include <QHostAddress>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -22,6 +23,10 @@ enum TxColumn { TxSend, TxKindCol, TxLocalIp, TxRemoteIp, TxLocalPort,
                 TxRemotePort, TxBroadcast, TxColCount };
 
 const QColor kBadCell(90, 30, 34);
+
+/// Chữ của dòng không còn hiệu lực — đúng màu chữ của widget bị khoá trong
+/// theme.h, để "mờ" ở đây và "mờ" ở chỗ khác trong phần mềm là cùng một sắc.
+const QColor kDimText(0x59, 0x64, 0x6f);
 
 /// Rỗng hoặc 0.0.0.0 đều hợp lệ — nghĩa là "mọi máy" / "mọi cổng".
 bool ipLooksValid(const QString &text)
@@ -105,6 +110,30 @@ ConnectionTab::ConnectionTab(QWidget *parent)
                         "nhận từ mọi máy / mọi cổng"));
     rxLay->addWidget(m_rx);
 
+    // Ô này nằm ngay dưới bảng vì nó nói về **một dòng của bảng**: bật thì dòng
+    // "Status" ở trên bị bỏ qua hoàn toàn.
+    //
+    // Nhãn xuống dòng bằng tay: QCheckBox không tự ngắt dòng, mà panel 2 chỉ
+    // rộng chừng 30% màn hình — để một dòng là chữ tràn ra ngoài và cả tab mọc
+    // thêm thanh cuộn ngang.
+    m_autoStatus = new QCheckBox(
+        tr("Tự động cấu hình cổng nhận Status\n"
+           "theo cổng gửi lệnh điều khiển Command"), rxBox);
+    m_autoStatus->setObjectName(QStringLiteral("autoStatusPort"));
+    m_autoStatus->setChecked(true);
+    m_autoStatus->setToolTip(
+        tr("Hệ thống thật trả trạng thái về đúng cổng đã gửi lệnh tới nó. Cổng "
+           "đó thường do hệ điều hành tự chọn (LocalPort của dòng \"Command\" "
+           "bên bảng dưới để 0) nên mỗi lần chạy một số khác nhau — không khai "
+           "trước được ở bảng trên.\n"
+           "Bật: dòng \"Status\" của bảng trên bị bỏ qua, trạng thái được nghe "
+           "ngay trên socket gửi lệnh, kể cả khi chưa bấm \"Bắt đầu nhận dữ "
+           "liệu\".\n"
+           "Tắt: nghe đúng theo dòng \"Status\" trong bảng — nhớ để LocalPort "
+           "của nó khác LocalPort của dòng \"Command\", hai socket không cùng "
+           "mở được một cổng."));
+    rxLay->addWidget(m_autoStatus);
+
     m_add    = new QPushButton(tr("Thêm dòng"), rxBox);
     m_remove = new QPushButton(tr("Xoá dòng"), rxBox);
     // Nút bật/tắt nằm trong chính group của nó: hai chiều dữ liệu bật tắt độc
@@ -174,6 +203,11 @@ ConnectionTab::ConnectionTab(QWidget *parent)
     connect(m_rx, &QTableWidget::itemChanged, this, &ConnectionTab::onCellChanged);
     connect(m_add, &QPushButton::clicked, this, &ConnectionTab::addRow);
     connect(m_remove, &QPushButton::clicked, this, &ConnectionTab::removeSelectedRow);
+    connect(m_autoStatus, &QCheckBox::toggled, this, [this](bool on) {
+        m_params.statusFollowsCommand = on;
+        markStatusRow();
+        emit statusFollowsCommandChanged(on);
+    });
 
     connect(m_tx, &QTableWidget::itemChanged, this, &ConnectionTab::onTxCellChanged);
     connect(m_txAdd, &QPushButton::clicked, this, &ConnectionTab::addTxRow);
@@ -202,6 +236,14 @@ void ConnectionTab::setParams(const AppParams &p)
     // NetEndpoint::enabled.
     for (NetEndpoint &e : m_params.tx)
         e.enabled = e.kind == TxKind::Command;
+
+    // Chặn tín hiệu: setParams() cố ý không phát gì ra ngoài, nơi gọi vừa mới
+    // lấy chính giá trị này từ file tham số.
+    {
+        const QSignalBlocker block(m_autoStatus);
+        m_autoStatus->setChecked(m_params.statusFollowsCommand);
+    }
+
     rebuildTable();
     rebuildTxTable();
 }
@@ -217,6 +259,9 @@ void ConnectionTab::setRunning(bool on)
     m_rx->setEnabled(!on);
     m_add->setEnabled(!on);
     m_remove->setEnabled(!on);
+    // Ô tự động cũng khoá theo bảng: tắt nó giữa chừng là phải mở lại đúng cái
+    // cổng "Status" vừa bị bỏ qua, mà cổng nhận thì chỉ mở lúc bấm nút.
+    m_autoStatus->setEnabled(!on);
 }
 
 void ConnectionTab::setTxRunning(bool on)
@@ -261,6 +306,35 @@ void ConnectionTab::rebuildTable()
     }
     m_rx->resizeColumnsToContents();
     m_loading = false;
+    markStatusRow();
+}
+
+void ConnectionTab::markStatusRow()
+{
+    // Tô nền/chữ cũng phát itemChanged — cùng cái bẫy đệ quy đã chú thích ở
+    // readTable().
+    const bool wasLoading = m_loading;
+    m_loading = true;
+
+    const bool ignoring = m_params.statusFollowsCommand;
+    const QString tip = tr("Dòng này đang bị bỏ qua: ô \"Tự động cấu hình cổng "
+                           "nhận Status...\" bên dưới đang bật, trạng thái được "
+                           "nghe trên chính cổng gửi lệnh Command.");
+
+    for (int r = 0; r < m_rx->rowCount() && r < m_params.rx.size(); ++r) {
+        const bool dim = ignoring && AppParams::isStatusRow(m_params.rx.at(r));
+        for (int c = 0; c < ColCount; ++c) {
+            QTableWidgetItem *it = m_rx->item(r, c);
+            if (!it)
+                continue;
+            it->setForeground(dim ? QBrush(kDimText) : QBrush());
+            it->setToolTip(dim ? tip : QString());
+        }
+        if (auto *w = m_rx->cellWidget(r, ColName))
+            w->setToolTip(dim ? tip : QString());
+    }
+
+    m_loading = wasLoading;
 }
 
 void ConnectionTab::addRow()
@@ -292,7 +366,11 @@ void ConnectionTab::onCellChanged()
 {
     if (m_loading)
         return;
-    if (readTable())
+    const bool ok = readTable();
+    // Sửa ô "Tên" có thể vừa biến một dòng thành dòng "Status" — hoặc thôi là
+    // nó — nên dấu hiệu mờ phải tính lại ngay tại đây.
+    markStatusRow();
+    if (ok)
         emit endpointsChanged(m_params.rx);
 }
 

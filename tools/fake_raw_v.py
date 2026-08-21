@@ -20,8 +20,8 @@ import time
 HEADER = 0xB4B3B2B1
 CATEGORY = 0x20180
 BINS = 1024
-WORDS = 6 + BINS + 1          # 1031 từ, khớp trường Length
-LENGTH = WORDS * 4
+WORDS = 6 + BINS + 1          # 1031 từ
+LENGTH = WORDS * 4            # trường Length là số byte
 AZIMUTH_STEPS = 4096
 
 # Dải nền tạp theo mô tả giai đoạn 3.

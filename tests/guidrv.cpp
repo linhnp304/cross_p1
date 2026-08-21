@@ -26,6 +26,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QRegularExpression>
@@ -108,6 +109,11 @@ QString widgetText(const QWidget *w)
         t = c->currentText();
     else if (const auto *s = qobject_cast<const QAbstractSpinBox *>(w))
         t = s->text();
+    // Tiêu đề khung nhóm cũng là chữ đọc được: tab "Điều khiển" để cặp serial
+    // "(lệnh - trạng thái)" ngay trên đó, mà đó là bằng chứng duy nhất nhìn
+    // thấy được rằng một gói trạng thái vừa về.
+    else if (const auto *g = qobject_cast<const QGroupBox *>(w))
+        t = g->title();
     return t.remove(QLatin1Char('&'));
 }
 
@@ -257,6 +263,7 @@ void doDump(const QString &sel, bool all)
                             || qobject_cast<QSlider *>(w)
                             || qobject_cast<QTabBar *>(w)
                             || qobject_cast<QAbstractItemView *>(w)
+                            || qobject_cast<QGroupBox *>(w)
                             || qobject_cast<QLabel *>(w);
         if (!useful)
             continue;

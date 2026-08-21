@@ -1,5 +1,6 @@
 #include "net/udplink.h"
 
+#include "net/adfproto.h"
 #include "net/cmdproto.h"
 #include "net/packetio.h"
 
@@ -354,10 +355,12 @@ void UdpWorker::read(const Bound &b)
             if (recProc)
                 spool->push(rec::RecType::Plot, nowMs, payload);
             m_counters->plotTc.fetch_add(1, std::memory_order_relaxed);
-        } else if (cmdproto::isStatus(raw, len)) {
-            // Trạng thái phản hồi lệnh điều khiển. Đẩy nguyên datagram sang
-            // luồng giao diện — tách trường là việc của tab "Điều khiển", luồng
-            // này không nên biết gì về giao diện.
+        } else if (cmdproto::isStatus(raw, len)
+                   || adfproto::isStatus(raw, len)) {
+            // Trạng thái phản hồi lệnh điều khiển — của đài hoặc của kit
+            // ADF4159. Đẩy nguyên datagram sang luồng giao diện, tách trường là
+            // việc của tab "Điều khiển" và cửa sổ ADF4159; luồng này không nên
+            // biết gì về giao diện.
             m_status->push(payload);
             if (recProc)
                 spool->push(rec::RecType::Other, nowMs, payload);

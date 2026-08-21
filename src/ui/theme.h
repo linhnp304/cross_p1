@@ -60,6 +60,20 @@ QLineEdit, QDoubleSpinBox, QSpinBox {
 }
 QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus { border-color: #4e9ad4; }
 
+/* Ô đang bị khoá phải nhìn ra là đang bị khoá. Bảng màu đặt màu chữ cho từng
+   loại widget, mà màu đó đè lên cả bảng màu mặc định của Qt cho trạng thái
+   disabled — không có mấy dòng dưới đây thì setEnabled(false) chẳng đổi gì trên
+   màn hình, người dùng cứ bấm vào một nhóm ô đã chết mà không hiểu vì sao. */
+QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled,
+QComboBox:disabled { color: #59646f; }
+QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled {
+    background: #0a0e12; color: #59646f; border-color: #1d2731;
+}
+QPushButton:disabled {
+    background: #141c24; color: #59646f; border-color: #22303d;
+}
+QGroupBox:disabled::title { color: #4a5f73; }
+
 QPushButton {
     background: #1b2733;
     border: 1px solid #2f4358;

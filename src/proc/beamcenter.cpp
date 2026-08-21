@@ -36,7 +36,7 @@ bool BeamCenter::inSector(quint32 azimuth) const
 void BeamCenter::process(const rawpkt::RawPCycle &cycle, quint32 timeMs, qint64 nowMs,
                          QVector<PlotTC> &out)
 {
-    const quint32 azimuth = cycle.workAzimuth();
+    const quint32 azimuth = cycle.azimuth;
     const bool    usable  = cycle.count > 0 && inSector(azimuth);
 
     if (!usable) {
