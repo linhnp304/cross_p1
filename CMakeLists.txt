@@ -106,6 +106,8 @@ set(AR_SOURCES
     src/ui/beamparamsdialog.h
     src/ui/colorstab.cpp
     src/ui/colorstab.h
+    src/ui/compacttabs.cpp
+    src/ui/compacttabs.h
     src/ui/connectiontab.cpp
     src/ui/connectiontab.h
     src/ui/controltab.cpp

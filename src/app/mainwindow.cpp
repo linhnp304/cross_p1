@@ -5,6 +5,7 @@
 #include "ui/ascope.h"
 #include "ui/beamparamsdialog.h"
 #include "ui/colorstab.h"
+#include "ui/compacttabs.h"
 #include "ui/connectiontab.h"
 #include "ui/controltab.h"
 #include "maps/geo.h"
@@ -39,7 +40,6 @@
 #include <QSet>
 #include <QShortcut>
 #include <QSplitter>
-#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -442,7 +442,9 @@ void MainWindow::closeEvent(QCloseEvent *e)
 
 QWidget *MainWindow::buildRightColumn()
 {
-    auto *tabs = new QTabWidget;
+    // Bảy tab với bề rộng mặc định thì tab cuối bị đẩy ra ngoài panel —
+    // CompactTabWidget tự bớt đệm cho vừa. Xem CompactTabBar.
+    auto *tabs = new CompactTabWidget;
     tabs->setDocumentMode(true);
 
     m_connectionTab = new ConnectionTab;
@@ -491,9 +493,13 @@ QWidget *MainWindow::buildStatusBar()
 
     m_timeLabel   = makeStatusLabel();
     m_cursorLabel = makeStatusLabel();
+    m_sweepLabel  = makeStatusLabel();
     m_siteLabel   = makeStatusLabel();
 
-    // Nhóm giữa nằm chính giữa: hai bên dùng cùng hệ số giãn nên rộng bằng nhau.
+    // Nhóm giữa nằm chính giữa thanh: hai bên cùng hệ số giãn, **và** cùng bỏ
+    // qua bề rộng mong muốn của mình (QSizePolicy::Ignored). Chỉ đặt hệ số giãn
+    // thôi thì chưa đủ — hệ số chỉ chia phần dư, mà nhóm phải còn rộng hơn nhóm
+    // trái cả trăm điểm ảnh, nên nhóm giữa bị đẩy lệch hẳn sang trái.
     auto *left = new QWidget(bar);
     auto *leftLay = new QHBoxLayout(left);
     leftLay->setContentsMargins(6, 2, 0, 2);
@@ -508,6 +514,7 @@ QWidget *MainWindow::buildStatusBar()
     centreLay->setSpacing(0);
     centreLay->addWidget(m_timeLabel);
     centreLay->addWidget(m_cursorLabel);
+    centreLay->addWidget(m_sweepLabel);
 
     auto *right = new QWidget(bar);
     auto *rightLay = new QHBoxLayout(right);
@@ -516,12 +523,17 @@ QWidget *MainWindow::buildStatusBar()
     rightLay->addStretch(1);
     rightLay->addWidget(m_siteLabel);
 
+    left->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    right->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(6, 0, 6, 0);
     lay->setSpacing(0);
     lay->addWidget(left, 1);
     lay->addWidget(centre, 0);
     lay->addWidget(right, 1);
+
+    updateSweepLabel();
     return bar;
 }
 
@@ -849,6 +861,15 @@ void MainWindow::updateCursorLabel(double lat, double lng)
                                .arg(distKm, 0, 'f', 3));
 }
 
+void MainWindow::updateSweepLabel()
+{
+    // Phương vị của lượt quét RAW_V mới nhất, đã quy ra độ. Chưa nhận được gói
+    // nào thì lastAngleDeg() trả -1 — hiện 0.000 chứ không hiện số âm.
+    const double deg = m_video.lastAngleDeg();
+    m_sweepLabel->setText(
+        tr("Đường quét  %1°").arg(deg < 0.0 ? 0.0 : deg, 0, 'f', 3));
+}
+
 // -------------------------------------------------------------- kết nối ----
 
 void MainWindow::resetProcessing()
@@ -856,6 +877,7 @@ void MainWindow::resetProcessing()
     m_video.clear();
     m_ascope->clearTrace();
     m_fadeClock.restart();
+    updateSweepLabel();   // xoá nền tạp là mất luôn lượt quét cuối: về 0.000
 
     // Mở một dòng dữ liệu mới thì xoá sạch trạng thái xử lý: chùm xung dở dang
     // và quỹ đạo của lần trước không còn liên quan gì tới dữ liệu sắp tới.
@@ -1205,6 +1227,7 @@ void MainWindow::onTick()
             refreshTrackList();
     }
 
+    updateSweepLabel();
     m_radar->update();
 }
 

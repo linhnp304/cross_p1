@@ -122,6 +122,10 @@ private:
     /// tính từ tâm đài.
     void updateCursorLabel(double lat, double lng);
 
+    /// Góc đường quét trên thanh trạng thái: phương vị của lượt quét RAW_V mới
+    /// nhất. Chưa có dữ liệu thì hiện 0.000.
+    void updateSweepLabel();
+
     void startLink();
     void stopLink();
 
@@ -222,6 +226,7 @@ private:
 
     QLabel       *m_timeLabel   = nullptr;
     QLabel       *m_cursorLabel = nullptr;
+    QLabel       *m_sweepLabel  = nullptr;
     QLabel       *m_siteLabel   = nullptr;
     LanIndicator *m_lan         = nullptr;
 

@@ -237,13 +237,19 @@ void ControlTab::loadGroup(int group)
             // chọn trỏ vào chỗ trống.
             c.combo->setCurrentIndex(at >= 0 ? at : 0);
         } else if (c.radios) {
+            // Giá trị lạ thì lùi về lựa chọn đầu, y như hộp chọn ở trên. Không
+            // phải chuyện lý thuyết: FKSL_Filter từng nhận 1..5, giai đoạn 11
+            // thu còn 0,1 — file params.json của bản cũ mang sẵn giá trị 2..5,
+            // mà không lùi về đâu cả thì cả hàng không nút nào được chọn.
+            int at = 0;
             for (int k = 0; k < f.optionCount; ++k) {
-                if (f.options[k].value != raw)
-                    continue;
-                if (QAbstractButton *b = c.radios->button(k))
-                    b->setChecked(true);
-                break;
+                if (f.options[k].value == raw) {
+                    at = k;
+                    break;
+                }
             }
+            if (QAbstractButton *b = c.radios->button(at))
+                b->setChecked(true);
         }
     }
     m_loading = false;
