@@ -94,12 +94,44 @@ jobs:
           path: dist/**
           if-no-files-found: error
 
-      - name: Upload build artifacts (Linux, macOS)
-        if: runner.os != 'Windows'
+      # --- Linux: đóng thành .tar.gz, tải về là chạy -------------------------
+      # Phải gói bằng tar chứ không thả file trần: artifact của GitHub là một
+      # file zip, mà zip không giữ cờ thực thi — tải về sẽ phải `chmod +x` tay.
+      #
+      # Bước này cũng là chốt chặn cho chuyện đã vấp một lần: máy phát triển
+      # chạy Ubuntu 26.04 (Qt 6.10) còn máy ngoài hiện trường chạy 24.04 (Qt
+      # 6.4.2), file chạy dựng bên kia mang sang là chết vì thiếu nhãn Qt_6.10.
+      # Job này dựng bằng đúng Qt 6.4 của apt nên hợp với 24.04; nhãn Qt_ cao
+      # nhất mà objdump đọc được phải là 6.4, cao hơn là hỏng, dừng luôn.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          name="${{ steps.app.outputs.name }}"
+          bin=$(find build -type f -name "$name" -perm -u+x | head -1)
+          [ -n "$bin" ] || { echo "khong tim thay $name trong build/"; exit 1; }
+          mkdir -p dist
+          cp "$bin" dist/
+          echo "--- muc phu thuoc cua $name ---"
+          objdump -T "dist/$name" \
+            | grep -oE 'Qt_[0-9.]+|GLIBC_[0-9.]+|GLIBCXX_[0-9.]+' | sort -u -V
+          if objdump -T "dist/$name" | grep -qE 'Qt_6\.([5-9]|[0-9]{2})'; then
+            echo "LOI: file chay doi Qt moi hon 6.4, may Ubuntu 24.04 se khong mo duoc"
+            exit 1
+          fi
+          tar -C dist -czf "$name-linux-x86_64.tar.gz" "$name"
+
+      - name: Upload build artifacts (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.app.outputs.name }}-${{ matrix.os }}
-          path: |
-            build/**/${{ steps.app.outputs.name }}
-            build/**/${{ steps.app.outputs.name }}.app
-          if-no-files-found: ignore
+          path: ${{ steps.app.outputs.name }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+      - name: Upload build artifacts (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.app.outputs.name }}-${{ matrix.os }}
+          path: build/**/${{ steps.app.outputs.name }}.app
+          if-no-files-found: error

@@ -996,13 +996,23 @@ platform plugin xcb"* rồi thoát. `libqt6sql6-sqlite` thì không bắt buộc
 nó phần mềm vẫn chạy, chỉ mất danh sách phiên ghi lưu — xem
 [Ghi lưu và phát lại](#ghi-lưu-và-phát-lại).
 
-Bản trên CI được build bằng chính Qt trong kho apt của **Ubuntu 24.04**, nên chạy
-được trên Ubuntu 24.04 trở đi. Máy dùng bản cũ hơn thì build lại từ mã
-nguồn (xem mục [Build](#build)) — cần thêm `qt6-base-dev`.
+Bản trên CI được build bằng chính Qt trong kho apt của **Ubuntu 24.04** (Qt
+6.4.2), nên chạy được trên Ubuntu 24.04 trở đi — kể cả 26.04. Chiều ngược lại
+thì **không**: file chạy dựng trên 26.04 (Qt 6.10) mang sang 24.04 sẽ báo
+*"version 'Qt_6.10' not found"*. Vì vậy cứ lấy artifact của CI mà dùng, đừng
+chép file chạy giữa hai máy. Bước đóng gói trong workflow có đọc lại nhãn Qt
+của file vừa dựng và dừng hẳn nếu nó cao hơn 6.4.
+
+Artifact Linux là một file `.tar.gz` — nén tar chứ không thả file trần vì zip
+của GitHub không giữ cờ thực thi. Giải nén là chạy được luôn, không phải
+`chmod`:
 
 ```bash
-chmod +x ar0101 && ./ar0101
+tar -xzf ar0101-linux-x86_64.tar.gz && ./ar0101
 ```
+
+Máy dùng bản Ubuntu cũ hơn 24.04 thì build lại từ mã nguồn (xem mục
+[Build](#build)) — cần thêm `qt6-base-dev`.
 
 ### macOS
 
