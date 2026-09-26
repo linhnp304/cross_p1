@@ -1,0 +1,53 @@
+# Giai đoạn 12: khóa/mở khóa điều khiển, nút thoát phần mềm, tỉ lệ panel 2.
+#
+# Không cần dữ liệu giả: kịch bản chỉ xem phần giao diện. Có bấm "Bắt đầu nhận
+# dữ liệu" một lúc để xem nút "Thoát phần mềm" có bị khoá theo hay không.
+
+# --- panel 2: cửa sổ biên độ phải chiếm 20% chiều dọc ---
+shot /tmp/g12-0-toanbo.png
+shot /tmp/g12-0-ascope.png .AScope
+
+# --- tab "Điều khiển": mặc định đang khóa ---
+tab "Điều khiển"
+wait 400
+dump
+text "Mở khóa điều khiển"
+shot /tmp/g12-1-dangkhoa.png
+
+# Nút ADF4159 đang disable: bấm vào phải không mở được cửa sổ nào.
+click "Điều khiển ADF4159"
+wait 400
+windows
+
+# --- mở khóa ---
+click "Mở khóa điều khiển"
+wait 400
+text "Khóa điều khiển"
+shot /tmp/g12-2-damokhoa.png
+
+# Giờ nút ADF4159 mở được.
+click "Điều khiển ADF4159"
+wait 600
+windows
+
+# --- khóa lại: cửa sổ ADF4159 phải tự đóng ---
+click "Khóa điều khiển"
+wait 600
+windows
+shot /tmp/g12-3-khoalai.png
+
+# --- tab "Kết nối": nút thoát phần mềm ---
+tab "Kết nối"
+wait 400
+text "Thoát phần mềm"
+shot /tmp/g12-4-ketnoi.png
+shot /tmp/g12-4-nutthoat.png "Thoát phần mềm"
+
+click "Bắt đầu nhận dữ liệu"
+wait 800
+shot /tmp/g12-5-dangnhan.png "Thoát phần mềm"
+
+click "Dừng nhận dữ liệu"
+wait 500
+shot /tmp/g12-6-dadung.png "Thoát phần mềm"
+quit

@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScrollArea>
 #include <QTime>
 #include <QVBoxLayout>
 
@@ -22,6 +23,13 @@ using cmdproto::Widget;
 
 const QString kRedStyle   = QStringLiteral("color: #d47b6a;");
 const QString kInfoStyle  = QStringLiteral("color: #7fa8c9;");
+
+/// Hai trạng thái của nút khóa điều khiển. Chỉ đổi màu chữ chứ không đổi nền:
+/// nền nút do bảng màu chung đặt, mà nút này vẫn phải trông như một cái nút.
+/// Xanh là đang khóa — trạng thái yên; hổ phách là đang mở khóa — trạng thái mà
+/// mỗi lần vặn một ô là một lệnh thật đi ra đài.
+const QString kLockedStyle   = QStringLiteral("color: #6fbf8f; font-weight: bold;");
+const QString kUnlockedStyle = QStringLiteral("color: #e0a458; font-weight: bold;");
 
 /// Chuỗi trong bảng trường đi qua đây để còn dịch được sau này. Bảng là dữ liệu
 /// hằng nên không gọi tr() ngay trong đó được.
@@ -74,27 +82,59 @@ QDoubleSpinBox *makeSpin(QWidget *parent, const Field &f)
 ControlTab::ControlTab(QWidget *parent)
     : QWidget(parent)
 {
+    // Tab chia làm hai phần: phần đầu ghim cứng, phần thân cuộn được. Bốn group
+    // lệnh cao hơn panel nhiều lần, mà hai nút dưới đây thì phải với tới được
+    // bất kể đang cuộn tới đâu.
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 12, 12, 12);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    auto *head = new QWidget(this);
+    auto *headLay = new QVBoxLayout(head);
+    headLay->setContentsMargins(12, 12, 12, 8);
+    headLay->setSpacing(6);
+
+    m_lockBtn = new QPushButton(head);
+    connect(m_lockBtn, &QPushButton::clicked, this,
+            [this] { setLocked(!m_locked); });
+    headLay->addWidget(m_lockBtn);
+
+    // Kit tạo tín hiệu ADF4159 không nằm trong bốn gói lệnh dưới: nó có bộ
+    // thanh ghi riêng, nhiều tới mức phải một cửa sổ riêng mới đủ chỗ. Nút của
+    // nó ghim cạnh nút khóa vì nó cũng là một đường ra lệnh cho đài — khóa
+    // điều khiển thì khóa cả đường đó.
+    m_adfBtn = new QPushButton(tr("Điều khiển ADF4159"), head);
+    m_adfBtn->setToolTip(tr("Mở cửa sổ điều khiển kit tạo tín hiệu ADF4159"));
+    connect(m_adfBtn, &QPushButton::clicked, this, &ControlTab::adf4159Requested);
+    headLay->addWidget(m_adfBtn);
+
+    root->addWidget(head, 0);
+
+    auto *body = new QWidget;
+    auto *bodyLay = new QVBoxLayout(body);
+    bodyLay->setContentsMargins(12, 0, 12, 12);
+    bodyLay->setSpacing(12);
 
     for (int g = 0; g < cmdproto::GroupCount; ++g)
-        root->addWidget(buildGroup(g));
+        bodyLay->addWidget(buildGroup(g));
 
-    // Kit tạo tín hiệu ADF4159 không nằm trong bốn gói lệnh trên: nó có bộ
-    // thanh ghi riêng, nhiều tới mức phải một cửa sổ riêng mới đủ chỗ.
-    auto *adf = new QPushButton(tr("Điều khiển ADF4159"), this);
-    adf->setToolTip(tr("Mở cửa sổ điều khiển kit tạo tín hiệu ADF4159"));
-    connect(adf, &QPushButton::clicked, this, &ControlTab::adf4159Requested);
-    root->addWidget(adf);
-
-    m_status = new QLabel(this);
+    m_status = new QLabel(body);
     m_status->setWordWrap(true);
     m_status->setStyleSheet(kInfoStyle);
-    root->addWidget(m_status);
-    root->addStretch(1);
+    bodyLay->addWidget(m_status);
+    bodyLay->addStretch(1);
+
+    auto *scroll = new QScrollArea(this);
+    scroll->setWidget(body);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    root->addWidget(scroll, 1);
 
     setValues(m_values);
+
+    // Mở phần mềm lên là đang khóa: đài đang chạy theo cấu hình của ca trước,
+    // mà lệnh đầu tiên đi ra không được là một cú vặn vô tình.
+    setLocked(true);
 }
 
 QGroupBox *ControlTab::buildGroup(int group)
@@ -102,7 +142,7 @@ QGroupBox *ControlTab::buildGroup(int group)
     const Packet &p = cmdproto::kPackets[group];
     GroupUi &ui = m_groups[group];
 
-    ui.box = new QGroupBox(txt(p.label), this);
+    ui.box = new QGroupBox(txt(p.label));
     auto *form = new QFormLayout(ui.box);
     form->setLabelAlignment(Qt::AlignLeft);
     // Panel bên phải chỉ rộng chừng 30% màn hình, mà có hàng năm lựa chọn nằm
@@ -255,6 +295,76 @@ void ControlTab::loadGroup(int group)
     m_loading = false;
 }
 
+bool ControlTab::adoptStatus(int group)
+{
+    const Packet &p = cmdproto::kPackets[group];
+    const GroupUi &ui = m_groups[group];
+    if (!ui.hasStatus)
+        return false;
+
+    bool changed = false;
+    for (int i = 0; i < p.fieldCount; ++i) {
+        // Ô chỉ hiện trạng thái (kể cả ô soi giá trị gói khác) không có giá trị
+        // điều khiển nào mà theo: refreshMismatch() đổ thẳng gói vào ô đó.
+        if (!p.fields[i].editable() || m_values.v[group][i] == ui.status[i])
+            continue;
+        m_values.v[group][i] = ui.status[i];
+        changed = true;
+    }
+
+    if (changed)
+        loadGroup(group);
+    return changed;
+}
+
+void ControlTab::setLocked(bool locked)
+{
+    m_locked = locked;
+
+    m_lockBtn->setText(locked ? tr("Mở khóa điều khiển") : tr("Khóa điều khiển"));
+    m_lockBtn->setStyleSheet(locked ? kLockedStyle : kUnlockedStyle);
+    m_lockBtn->setToolTip(
+        locked ? tr("Đang khóa: các ô dưới đây chỉ hiện giá trị đài báo về, "
+                    "không nhận thao tác nào.\n"
+                    "Bấm để mở khóa — từ lúc đó mỗi lần đổi một ô là một lệnh "
+                    "thật đi ra đài.")
+               : tr("Đang mở khóa: mỗi lần đổi một ô là một lệnh thật đi ra "
+                    "đài.\n"
+                    "Bấm để khóa lại — các ô quay về hiện đúng giá trị đài báo "
+                    "về, và cửa sổ \"Điều khiển ADF4159\" bị đóng."));
+    m_adfBtn->setEnabled(!locked);
+
+    bool adopted = false;
+    for (int g = 0; g < cmdproto::GroupCount; ++g) {
+        const Packet &p = cmdproto::kPackets[g];
+        GroupUi &ui = m_groups[g];
+
+        for (int i = 0; i < p.fieldCount; ++i) {
+            const Cell &c = ui.cells[i];
+            if (c.spin)
+                c.spin->setEnabled(!locked);
+            if (c.combo)
+                c.combo->setEnabled(!locked);
+            if (c.radios) {
+                const QList<QAbstractButton *> buttons = c.radios->buttons();
+                for (QAbstractButton *b : buttons)
+                    b->setEnabled(!locked);
+            }
+        }
+
+        // Vừa khóa lại: bắt kịp đài ngay bằng gói trạng thái gần nhất, đừng để
+        // tab hiện tiếp chỗ người dùng vừa vặn tới rồi bỏ đó — có khi cả phút
+        // nữa mới có gói trạng thái kế tiếp.
+        if (locked && adoptStatus(g))
+            adopted = true;
+        refreshMismatch(g);
+    }
+
+    if (adopted)
+        emit valuesChanged();
+    emit lockChanged(locked);
+}
+
 void ControlTab::sendGroup(int group)
 {
     if (m_loading)
@@ -334,6 +444,10 @@ bool ControlTab::applyStatus(const QByteArray &datagram)
                           ui.status);
     ui.hasStatus = true;
 
+    // Đang khóa điều khiển thì giao diện đi theo đài, không phải ngược lại.
+    if (m_locked && adoptStatus(group))
+        emit valuesChanged();
+
     refreshMismatch(group);
     refreshTitle(group);
     emit statusReceived(group);
@@ -369,7 +483,12 @@ void ControlTab::refreshMismatch(int group)
             continue;
         }
 
-        const bool differs = ui.hasStatus && status != m_values.v[group][i];
+        // Đang khóa thì không có gì mà lệch: giá trị trên ô vừa được đặt bằng
+        // chính giá trị trạng thái. Vẫn xoá tường minh chứ không dựa vào phép
+        // so sánh, vì ô không hiện nổi giá trị đài báo (dải hẹp hơn, lựa chọn
+        // không có trong bảng) thì phép so sánh kia lại thấy lệch.
+        const bool differs =
+            !m_locked && ui.hasStatus && status != m_values.v[group][i];
 
         if (c.radios) {
             // Nhóm nút chọn: tô đỏ chính lựa chọn ứng với **giá trị trạng

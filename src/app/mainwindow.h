@@ -10,6 +10,7 @@
 
 #include <QElapsedTimer>
 #include <QMainWindow>
+#include <QStringList>
 #include <QVector>
 
 #include <deque>
@@ -44,11 +45,22 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
 
 protected:
-    /// Hỏi lại trước khi thoát. Đóng nhầm cửa sổ giữa ca trực là mất cả nền tạp
-    /// đang tích, mọi quỹ đạo đang bám và phần ghi lưu đang dở.
+    /// Chặn, rồi hỏi lại, trước khi thoát. Đóng nhầm cửa sổ giữa ca trực là mất
+    /// cả nền tạp đang tích, mọi quỹ đạo đang bám và phần ghi lưu đang dở.
     void closeEvent(QCloseEvent *e) override;
 
 private:
+    /// Các chức năng đang bật mà phải tắt trước khi thoát phần mềm — bốn chức
+    /// năng mở/đóng cổng mạng hay file. Rỗng là thoát được.
+    ///
+    /// Một chỗ tính duy nhất cho hai nơi dùng: cái chặn trong closeEvent() và
+    /// việc khoá nút "Thoát phần mềm" bên tab "Kết nối". Hai nơi mà xét hai
+    /// danh sách khác nhau thì có lúc nút mở mà bấm vào lại bị chặn.
+    QStringList exitBlockers() const;
+
+    /// Cập nhật nút "Thoát phần mềm" theo exitBlockers().
+    void refreshExitState();
+
     QWidget *buildRightColumn();
     QWidget *buildStatusBar();
 

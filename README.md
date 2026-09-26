@@ -52,8 +52,9 @@ tham số thì in ra bảng lệnh của kịch bản. Mặc định chạy ngo�
 `QT_QPA_PLATFORM=wayland` (hay `xcb`) nếu muốn xem tận mắt.
 
 Kịch bản mẫu nằm ở `tests/scripts/`. Lưu ý `bam-quy-dao.txt` có bấm **Áp dụng**
-trong cửa sổ tham số, tức là nó **ghi đè `build/params.json`** — sao lưu file đó
-trước nếu đang giữ một bộ tham số cần dùng.
+trong cửa sổ tham số, còn `khoa-theo-trang-thai.txt` có vặn một ô trong tab *Điều
+khiển* — cả hai đều **ghi đè `build/params.json`**, sao lưu file đó trước nếu
+đang giữ một bộ tham số cần dùng.
 
 ## File cấu hình
 
@@ -164,6 +165,20 @@ Cổng gửi chỉ thực sự mở khi nút chung đang bật **và** dòng đ�
   chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
 - Bảng cổng **nhận** chỉ sửa được lúc đã dừng kết nối. Bảng cổng **gửi** thì sửa
   được bất cứ lúc nào — xem [Gửi dữ liệu đi hệ thống khác](#gửi-dữ-liệu-đi-hệ-thống-khác).
+
+#### Thoát phần mềm
+
+Cuối tab có nút **Thoát phần mềm**. Nó — và cả dấu nhân trên thanh tiêu đề —
+chỉ thoát được khi **cả bốn** chức năng dưới đây đã tắt:
+
+*nhận dữ liệu*, *gửi dữ liệu*, *ghi lưu*, *phát lại*.
+
+Còn chức năng nào đang bật thì nút bị khoá (chú giải của nó kể ra đang vướng
+những gì), và đóng cửa sổ bằng dấu nhân sẽ ra một thông báo liệt kê đúng những
+chức năng ấy chứ không thoát. Phần mềm **không tự tắt hộ**: mỗi cái là một việc
+đang chạy dở mà chỉ người ngồi trước máy mới biết đã xong hay chưa — nhất là ghi
+lưu, tắt hộ thì file dừng ở một chỗ không ai chọn. Tắt hết rồi thì vẫn còn một
+câu hỏi lại trước khi đóng.
 
 #### Cổng nhận Status
 
@@ -432,6 +447,21 @@ vết và kích thước chỉnh trong tab **Cài đặt**, nhóm *Điểm dấu
   quỹ đạo. Kích thước đo bằng điểm ảnh màn hình, không theo mức phóng bản đồ.
   Chấm đơn xung đi theo nấc của điểm dấu, nhưng nhỏ hơn hẳn.
 
+### Màu lưới toạ độ
+
+Mục **Lưới toạ độ** — mục đầu tiên trong tab *Màu sắc* — đổi màu của cả lưới trên
+panel 1: vòng cự ly ở mọi bước, đường chia độ ở mọi bước, vòng cự ly tối đa, và
+các nhãn `km` / số độ đi kèm. Mặc định là vàng chanh `#c6de58`, đúng màu lưới vẫn
+dùng từ trước.
+
+Một màu cho cả lưới chứ không phải mỗi lớp một màu: thứ bậc đậm nhạt giữa các lớp
+(vòng 0.1 km mảnh nhất → vòng cự ly tối đa đậm nhất) được tính ra từ màu ấy, nên
+đổi màu là cả lưới đổi theo mà vẫn phân biệt được lớp nào với lớp nào.
+
+Hộp chọn màu có cả thanh **độ trong suốt**: để dưới 255 thì cả lưới mờ đi theo
+đúng tỉ lệ đó — cách nhanh nhất để lưới lùi hẳn xuống sau nền bản đồ mà không
+phải tắt nó đi.
+
 ### Hiện điểm dấu đơn xung
 
 Ô **Hiện điểm dấu đơn xung** (tab Cài đặt, nhóm *Điểm dấu và quỹ đạo*) vẽ mỗi
@@ -608,6 +638,32 @@ Lệnh đi ra các dòng **`Command`** trong bảng cổng gửi; trạng thái 
 Chưa cấu hình được cổng lệnh thì có một thông báo — hộp thoại đúng một lần, kèm
 dòng chữ đỏ ở cuối tab.
 
+### Khóa điều khiển
+
+Trên cùng của tab là **nút khóa**, ghim ở đó chứ không cuộn theo bốn group bên
+dưới. Chữ trên nút đổi cả nội dung lẫn màu, nhìn là biết đang ở trạng thái nào:
+
+| Nút ghi | Màu chữ | Đang ở trạng thái |
+|---|---|---|
+| *Mở khóa điều khiển* | xanh lá | **đang khóa** — mặc định lúc mở phần mềm |
+| *Khóa điều khiển* | hổ phách | **đang mở khóa** — vặn ô nào là ra lệnh ô đó |
+
+**Đang khóa** thì mọi ô trong tab bị vô hiệu hoá, và giá trị của chúng **đi theo
+gói trạng thái** đài trả về: tab thành chỗ đọc xem đài đang đặt ở đâu, không phải
+chỗ ra lệnh. Vì giá trị trên ô luôn bằng giá trị trạng thái nên lúc này không có
+vệt đỏ báo lệch nào.
+
+**Mở khóa** thì các ô nhận thao tác trở lại, và phần báo lệch dưới đây có hiệu
+lực. Lúc **khóa lại**, các ô lập tức nhảy về giá trị của gói trạng thái gần nhất
+— không phải chờ gói kế tiếp — và cửa sổ *Điều khiển ADF4159* nếu đang mở thì
+được đóng lại, vì đó cũng là một đường ra lệnh cho đài.
+
+Giá trị nhận theo kiểu ấy cũng được ghi xuống `params.json` như giá trị vặn tay,
+và cũng đi vào phép tính `Video[1024]` — nên `ZFbeat` / `GainU` / `DataSend` dùng
+để quy biên độ luôn là con số đài đang thật sự dùng.
+
+Trạng thái khóa **không** được ghi nhớ: mở phần mềm lên bao giờ cũng là đang khóa.
+
 ### Đọc phần báo lệch
 
 Nhận được trạng thái mà giá trị nào đó khác giá trị đang điều khiển (đài chưa
@@ -649,7 +705,9 @@ lời cả hai gói của kit ADF4159 dưới đây.
 
 ## Điều khiển kit tạo tín hiệu ADF4159
 
-Nút **Điều khiển ADF4159** ở cuối tab *Điều khiển* mở một cửa sổ riêng: dựng lại
+Nút **Điều khiển ADF4159** ghim ngay dưới nút khóa ở đầu tab *Điều khiển* — nó
+chỉ **enable khi đã mở khóa điều khiển**, xem [Khóa điều
+khiển](#khóa-điều-khiển). Nút mở một cửa sổ riêng: dựng lại
 phần mềm gốc của Analog Devices (*ADF4158/9 PLL Software*) theo gam màu tối của
 phần mềm này, và thay đường USB của nó bằng hai gói lệnh UDP.
 

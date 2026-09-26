@@ -177,6 +177,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::startSending);
     connect(m_connectionTab, &ConnectionTab::sendStopRequested,
             this, &MainWindow::stopSending);
+    // Nút "Thoát phần mềm" đi qua close() chứ không gọi quit() thẳng: nó phải
+    // chịu đúng cái chặn và câu hỏi lại của closeEvent(), y như dấu nhân trên
+    // thanh tiêu đề.
+    connect(m_connectionTab, &ConnectionTab::exitRequested, this, &MainWindow::close);
 
     // --- lệnh điều khiển ---
     connect(m_controlTab, &ControlTab::commandReady,
@@ -193,6 +197,13 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::applyStatusToParams);
     connect(m_controlTab, &ControlTab::adf4159Requested,
             this, &MainWindow::showAdf4159);
+    connect(m_controlTab, &ControlTab::lockChanged, this, [this](bool locked) {
+        // Cửa sổ ADF4159 cũng ra lệnh cho đài, mà nút mở nó thì nằm trong tab
+        // vừa bị khoá — để cửa sổ mở tiếp thì khoá điều khiển chẳng khoá được
+        // đường lệnh nào cả.
+        if (locked && m_adfWindow)
+            m_adfWindow->close();
+    });
 
     // --- ghi lưu và phát lại ---
     connect(m_recordTab, &RecordTab::recordStartRequested,
@@ -412,19 +423,47 @@ MainWindow::MainWindow(QWidget *parent)
     m_siteLabel->setText(tr("Tâm đài  %1")
                              .arg(formatLatLng(m_settings.siteLat, m_settings.siteLng)));
     updateCursorLabel(m_settings.siteLat, m_settings.siteLng);
+    refreshExitState();
 
     resize(1920, 1080);
 }
 
+QStringList MainWindow::exitBlockers() const
+{
+    QStringList busy;
+    if (m_link->isRunning())
+        busy << tr("Nhận dữ liệu");
+    if (m_txOn)
+        busy << tr("Gửi dữ liệu");
+    if (m_recorder->isRunning())
+        busy << tr("Ghi lưu");
+    if (m_player->isRunning())
+        busy << tr("Phát lại");
+    return busy;
+}
+
+void MainWindow::refreshExitState()
+{
+    m_connectionTab->setExitBlockers(exitBlockers());
+}
+
 void MainWindow::closeEvent(QCloseEvent *e)
 {
-    QString text = tr("Thoát phần mềm?");
-    if (m_recorder->isRunning()) {
-        text += tr("\n\nĐang ghi lưu — file sẽ được đóng lại đầy đủ trước khi "
-                   "thoát, phần đã ghi không mất.");
+    // Bốn chức năng này phải do chính trắc thủ tắt, phần mềm không tự tắt hộ:
+    // mỗi cái đều là một việc đang chạy dở mà người ngồi trước máy mới biết đã
+    // xong hay chưa — nhất là ghi lưu, tắt hộ thì file dừng ở một chỗ không ai
+    // chọn.
+    const QStringList busy = exitBlockers();
+    if (!busy.isEmpty()) {
+        QMessageBox::information(
+            this, appinfo::displayName(),
+            tr("Tắt các chức năng sau rồi mới thoát được phần mềm:\n\n• %1")
+                .arg(busy.join(QStringLiteral("\n• "))));
+        e->ignore();
+        return;
     }
 
-    if (QMessageBox::question(this, appinfo::displayName(), text,
+    if (QMessageBox::question(this, appinfo::displayName(), tr("Thoát phần mềm?"),
                               QMessageBox::Yes | QMessageBox::No,
                               QMessageBox::No)
         != QMessageBox::Yes) {
@@ -458,7 +497,9 @@ QWidget *MainWindow::buildRightColumn()
     // Tab "Danh sách" không bọc trong vùng cuộn: bảng tự cuộn được rồi, bọc
     // thêm một lớp nữa là hai thanh cuộn lồng nhau.
     tabs->addTab(m_trackTab, tr("Danh sách"));
-    tabs->addTab(wrapInScroll(m_controlTab), tr("Điều khiển"));
+    // Tab "Điều khiển" cũng không bọc: nó tự cuộn phần thân của mình, để hai
+    // nút khóa/mở khóa và ADF4159 ghim được ở đầu tab. Xem ControlTab.
+    tabs->addTab(m_controlTab, tr("Điều khiển"));
 
     // Tab "Kết nối" là tab mặc định: mở phần mềm lên thì việc đầu tiên bao giờ
     // cũng là bấm cho dữ liệu chảy vào.
@@ -472,15 +513,15 @@ QWidget *MainWindow::buildRightColumn()
 
     m_ascope = new AScope;
 
-    // Panel 2.1 (70% chiều dọc) | Panel 2.2 (30%)
+    // Panel 2.1 (80% chiều dọc) | Panel 2.2 (20%)
     auto *vSplit = new QSplitter(Qt::Vertical);
     vSplit->setChildrenCollapsible(false);
     vSplit->setHandleWidth(2);
     vSplit->addWidget(tabs);
     vSplit->addWidget(m_ascope);
-    vSplit->setStretchFactor(0, 7);
-    vSplit->setStretchFactor(1, 3);
-    vSplit->setSizes({700, 300});
+    vSplit->setStretchFactor(0, 8);
+    vSplit->setStretchFactor(1, 2);
+    vSplit->setSizes({800, 200});
     return vSplit;
 }
 
@@ -911,6 +952,10 @@ void MainWindow::syncTimers()
         m_statusTick->start();
     else if (!busy && m_statusTick->isActive())
         m_statusTick->stop();
+
+    // Ba trong bốn chức năng chặn đường thoát đi qua đây (nhận dữ liệu, ghi lưu,
+    // phát lại); chức năng thứ tư — gửi dữ liệu — tự gọi lấy.
+    refreshExitState();
 }
 
 void MainWindow::startLink()
@@ -972,6 +1017,7 @@ void MainWindow::startSending()
     m_txOn = true;
     m_sender->setEndpoints(activeTxEndpoints());
     m_connectionTab->setTxRunning(true);
+    refreshExitState();
 
     // Bảng có dòng nhưng không dòng nào tích ô "Gửi" thì bật nút cũng không có
     // gì đi ra — nói thẳng, thay vì để trắc thủ ngồi chờ một cổng không mở.
@@ -990,6 +1036,7 @@ void MainWindow::stopSending()
     // quỹ đạo, chứ không có lý do gì để tắt luôn đường điều khiển đài.
     m_sender->setEndpoints(activeTxEndpoints());
     m_connectionTab->setTxRunning(false);
+    refreshExitState();
     refreshLinkStatus();
 }
 

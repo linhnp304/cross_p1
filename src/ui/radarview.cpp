@@ -27,9 +27,7 @@ constexpr int    kTileSize = 256;
 constexpr double kMinRingSpacingPx = 6.0;
 constexpr double kMinAzSpacingPx   = 28.0;
 
-const QColor kGridBright(198, 222, 88);
 const QColor kSiteColor(255, 146, 38);
-const QColor kTextColor(206, 226, 138);
 const QColor kSweepColor(170, 255, 170);
 
 /// Vùng cấm khởi tạo. Nền rất nhạt để không nuốt mất nền tạp phía dưới — nó là
@@ -39,10 +37,13 @@ const QColor kNoInitZoneFill(255, 120, 90, 40);
 
 /// Nét vẽ của lưới, xếp từ lớp thưa (đậm) tới lớp dày (mảnh). Vòng cự ly tối
 /// đa dùng nét đậm nhất để luôn nổi lên trên mọi lớp.
-QPen gridPen(int alpha, double width)
+///
+/// `alpha` là độ đậm **của lớp**, còn độ trong suốt của chính màu trắc thủ chọn
+/// thì nhân thêm vào: chọn màu đặc (mặc định) là giữ nguyên thứ bậc giữa các
+/// lớp, chọn màu mờ là cả lưới mờ đi theo đúng tỉ lệ ấy chứ không mất thứ bậc.
+QPen gridPen(const QColor &c, int alpha, double width)
 {
-    QPen pen(QColor(kGridBright.red(), kGridBright.green(), kGridBright.blue(),
-                    alpha));
+    QPen pen(QColor(c.red(), c.green(), c.blue(), alpha * c.alpha() / 255));
     pen.setWidthF(width);
     return pen;
 }
@@ -535,18 +536,26 @@ void RadarView::drawRangeRings(QPainter &p) const
 {
     // Vòng cự ly tối đa vẽ cả khi đã tắt vòng tròn cự ly: nó là biên của màn
     // hình ra đa, và là chỗ để các đường chia độ kết thúc.
+    const QColor grid = m_settings.colors.grid;
+
     if (m_settings.ringMode != RingMode::Off) {
         const RingMode mode = m_settings.ringMode;
 
         // Vẽ từ lớp dày nhất tới lớp thưa nhất để nét đậm luôn nằm trên. Bước
         // tính bằng đơn vị 0.1 km: 1 = 0.1 km, 5 = 0.5 km, 10 = 1 km, 50 = 5 km.
+        //
+        // Ba lớp dày đậm hơn mức ban đầu một nấc: ở cự ly đài thật (vài km) thì
+        // lớp 5 km không có vòng nào, cả lưới trên màn hình chỉ còn ba lớp này —
+        // mờ như cũ thì gần như không đọc được cự ly. Thứ tự đậm dần giữa các
+        // lớp vẫn giữ nguyên, và bề rộng nét vẫn để 1.0: lớp 0.1 km vẽ hàng chục
+        // vòng mỗi khung hình, nét dày hơn 1 là chỗ QPainter chậm hẳn đi.
         if (mode == RingMode::R01)
-            drawRingLayer(p, 1, 5, gridPen(28, 1.0), false);    // 0.1 km, bỏ trùng 0.5
+            drawRingLayer(p, 1, 5, gridPen(grid, 42, 1.0), false);    // 0.1 km, bỏ trùng 0.5
         if (mode == RingMode::R01 || mode == RingMode::R05)
-            drawRingLayer(p, 5, 10, gridPen(48, 1.0), false);   // 0.5 km, bỏ trùng 1
+            drawRingLayer(p, 5, 10, gridPen(grid, 70, 1.0), false);   // 0.5 km, bỏ trùng 1
         if (mode != RingMode::R5)
-            drawRingLayer(p, 10, 50, gridPen(90, 1.0), false);  // 1 km, bỏ trùng 5
-        drawRingLayer(p, 50, 0, gridPen(165, 1.6), true);       // 5 km, có nhãn
+            drawRingLayer(p, 10, 50, gridPen(grid, 115, 1.0), false); // 1 km, bỏ trùng 5
+        drawRingLayer(p, 50, 0, gridPen(grid, 165, 1.6), true);       // 5 km, có nhãn
     }
 
     drawMaxRangeRing(p);
@@ -589,7 +598,9 @@ void RadarView::drawRingLayer(QPainter &p, int stepTenthKm, int skipTenthKm,
             geo::destination(m_settings.siteLat, m_settings.siteLng, 0.0, r, lat, lng);
             const QPointF at = geoToScreen(lat, lng);
             // Đặt bên trái tia bắc để không đụng nhãn phương vị 0 độ ở vành ngoài.
-            p.setPen(kTextColor);
+            // Nhãn lấy đúng màu lưới, không có màu riêng: nó là chữ của cái
+            // vòng ngay cạnh nó, đổi màu lưới mà nhãn đứng im thì hỏng.
+            p.setPen(m_settings.colors.grid);
             p.drawText(QRectF(at.x() - 68, at.y() - 16, 60, 15),
                        Qt::AlignRight | Qt::AlignVCenter,
                        QStringLiteral("%1 km").arg(r, 0, 'g', 4));
@@ -614,7 +625,7 @@ void RadarView::drawMaxRangeRing(QPainter &p) const
         poly << geoToScreen(lat, lng);
     }
 
-    p.setPen(gridPen(200, 1.8));
+    p.setPen(gridPen(m_settings.colors.grid, 200, 1.8));
     p.drawPolyline(poly);
 
     // Không ghi nhãn cự ly ở vòng ngoài cùng: nó luôn rơi vào chỗ có đường chia
@@ -627,11 +638,14 @@ void RadarView::drawAzimuthLines(QPainter &p) const
         return;
 
     const AzimuthMode mode = m_settings.azimuthMode;
+    const QColor grid = m_settings.colors.grid;
+
+    // Hai lớp dày đậm hơn một nấc, cùng lý do với vòng cự ly ở trên.
     if (mode == AzimuthMode::A5)
-        drawAzimuthLayer(p, 5, 10, gridPen(48, 1.0), false);   // 5 độ, bỏ trùng 10
+        drawAzimuthLayer(p, 5, 10, gridPen(grid, 70, 1.0), false);   // 5 độ, bỏ trùng 10
     if (mode == AzimuthMode::A5 || mode == AzimuthMode::A10)
-        drawAzimuthLayer(p, 10, 30, gridPen(90, 1.0), false);  // 10 độ, bỏ trùng 30
-    drawAzimuthLayer(p, 30, 0, gridPen(165, 1.6), true);       // 30 độ, có nhãn
+        drawAzimuthLayer(p, 10, 30, gridPen(grid, 115, 1.0), false); // 10 độ, bỏ trùng 30
+    drawAzimuthLayer(p, 30, 0, gridPen(grid, 165, 1.6), true);       // 30 độ, có nhãn
 }
 
 void RadarView::drawAzimuthLayer(QPainter &p, int stepDeg, int skipDeg,
@@ -664,7 +678,7 @@ void RadarView::drawAzimuthLayer(QPainter &p, int stepDeg, int skipDeg,
             if (len > 1.0) {
                 dir /= len;
                 const QPointF at = outer + dir * 14.0;
-                p.setPen(kTextColor);
+                p.setPen(m_settings.colors.grid);
                 p.drawText(QRectF(at.x() - 22, at.y() - 9, 44, 18),
                            Qt::AlignCenter, QString::number(deg));
             }

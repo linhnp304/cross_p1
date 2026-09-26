@@ -2,7 +2,7 @@
 
 #include <QCoreApplication>
 
-std::array<ColorEntry, 14> AppColors::entries()
+std::array<ColorEntry, 15> AppColors::entries()
 {
     // QCoreApplication::translate thay cho tr(): AppColors không phải QObject,
     // mà nhãn thì vẫn cần đi qua bộ dịch như mọi chuỗi khác trên giao diện.
@@ -11,6 +11,9 @@ std::array<ColorEntry, 14> AppColors::entries()
     };
 
     return {{
+        // Lưới toạ độ đứng đầu: nó là lớp dưới cùng của bức tranh, các đối
+        // tượng còn lại đều vẽ đè lên nó.
+        {"grid",            t("Lưới toạ độ"),             &grid},
         {"plotRadar",       t("Điểm dấu ra đa"),          &plotRadar},
         {"plotIff",         t("Điểm dấu IFF"),            &plotIff},
         {"plotRaw",         t("Điểm dấu đơn xung"),       &plotRaw},

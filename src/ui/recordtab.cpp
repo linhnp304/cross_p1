@@ -89,6 +89,9 @@ RecordTab::RecordTab(QWidget *parent)
     m_procBox->setChecked(true);
 
     m_recBtn   = new QPushButton(tr("Ghi lưu"), recBox);
+    // Chữ trên nút trùng với tiêu đề group chứa nó, nên kịch bản kiểm thử giao
+    // diện không chỉ được vào nút bằng chữ — đặt tên cho nó (xem tests/guidrv.cpp).
+    m_recBtn->setObjectName(QStringLiteral("recordToggle"));
     m_recTime  = makeInfoLabel(recBox);
     m_recCount = makeInfoLabel(recBox);
 

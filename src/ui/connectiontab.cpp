@@ -195,10 +195,21 @@ ConnectionTab::ConnectionTab(QWidget *parent)
     m_status->setWordWrap(true);
     m_status->setStyleSheet(QStringLiteral("color: #7fa8c9;"));
 
+    // --- Nút thoát phần mềm -----------------------------------------------
+    // Nằm cuối tab, cách xa hai nút bật/tắt dòng dữ liệu nhất trong cả tab: đây
+    // là nút duy nhất trong phần mềm mà bấm nhầm thì mất cả nền tạp đang tích
+    // và mọi quỹ đạo đang bám. Nó chỉ mở khi cả bốn chức năng đã tắt — điều kiện
+    // do MainWindow xét, xem setExitBlockers().
+    m_exit = new QPushButton(tr("Thoát phần mềm"), this);
+    auto *exitRow = new QHBoxLayout;
+    exitRow->addStretch(1);
+    exitRow->addWidget(m_exit);
+
     root->addWidget(rxBox);
     root->addWidget(txBox);
     root->addWidget(m_status);
     root->addStretch(1);
+    root->addLayout(exitRow);
 
     connect(m_rx, &QTableWidget::itemChanged, this, &ConnectionTab::onCellChanged);
     connect(m_add, &QPushButton::clicked, this, &ConnectionTab::addRow);
@@ -225,6 +236,9 @@ ConnectionTab::ConnectionTab(QWidget *parent)
         else
             emit sendStartRequested();
     });
+    connect(m_exit, &QPushButton::clicked, this, &ConnectionTab::exitRequested);
+
+    setExitBlockers({});
 }
 
 void ConnectionTab::setParams(const AppParams &p)
@@ -268,6 +282,16 @@ void ConnectionTab::setTxRunning(bool on)
 {
     m_txRunning = on;
     m_txToggle->setText(on ? tr("Dừng gửi dữ liệu") : tr("Bắt đầu gửi dữ liệu"));
+}
+
+void ConnectionTab::setExitBlockers(const QStringList &busy)
+{
+    m_exit->setEnabled(busy.isEmpty());
+    m_exit->setToolTip(
+        busy.isEmpty()
+            ? tr("Đóng phần mềm (vẫn hỏi lại một lần nữa)")
+            : tr("Phải tắt các chức năng sau trước đã:\n• %1")
+                  .arg(busy.join(QStringLiteral("\n• "))));
 }
 
 void ConnectionTab::setStatusText(const QString &text, bool isError)

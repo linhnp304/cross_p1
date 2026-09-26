@@ -20,6 +20,14 @@ struct ColorEntry {
 };
 
 struct AppColors {
+    // --- lưới toạ độ ---
+    //
+    /// Vòng cự ly, đường chia độ và nhãn của chúng. Một màu cho cả lưới: độ
+    /// đậm nhạt giữa các lớp (0.1 km mảnh nhất, vòng cự ly tối đa đậm nhất) do
+    /// RadarView::gridPen() tính ra từ màu này, không phải khai riêng từng lớp.
+    /// Đặt độ trong suốt < 255 thì cả lưới mờ đi theo đúng tỉ lệ ấy.
+    QColor grid {198, 222, 88};          ///< vàng chanh
+
     // --- điểm dấu ---
     QColor plotRadar {255,  70,  60};    ///< điểm dấu tâm chùm ra đa — đỏ
     QColor plotIff   {170, 170, 170};    ///< điểm dấu IFF — xám (chưa có IFF)
@@ -51,7 +59,7 @@ struct AppColors {
     /// Danh sách mọi màu, đúng thứ tự hiện trên tab "Màu sắc". Dùng chung cho
     /// việc dựng giao diện và cho việc lưu/nạp JSON, nên thêm màu mới chỉ phải
     /// sửa đúng một chỗ.
-    std::array<ColorEntry, 14> entries();
+    std::array<ColorEntry, 15> entries();
 
     QJsonObject toJson() const;
     void fromJson(const QJsonObject &o);

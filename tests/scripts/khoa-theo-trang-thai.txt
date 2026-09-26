@@ -1,0 +1,22 @@
+# Giai đoạn 12, phần khó thấy nhất: lúc khóa thì các ô đi theo gói trạng thái.
+#
+# Chạy kèm, ở một cửa sổ lệnh khác:
+#     python3 tools/fake_control.py --cmd-port 6101 --disobey
+# Đài giả trả về giá trị KHÁC lệnh vừa nhận, nên lúc mở khóa phải thấy vệt đỏ
+# báo lệch, còn lúc khóa thì các ô phải nhảy về đúng giá trị đài báo.
+
+tab "Điều khiển"
+wait 400
+
+# Mở khóa rồi vặn tốc độ quay lên 20 — lệnh đi ra, đài giả trả về số khác.
+click "Mở khóa điều khiển"
+wait 300
+set "Tốc độ quay (v/p)" 20
+wait 800
+shot /tmp/g12-7-lech.png
+
+# Khóa lại: các ô phải bám theo giá trị đài báo và hết vệt đỏ.
+click "Khóa điều khiển"
+wait 600
+shot /tmp/g12-8-batkip.png
+quit

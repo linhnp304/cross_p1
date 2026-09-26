@@ -2,6 +2,7 @@
 
 #include "app/appparams.h"
 
+#include <QStringList>
 #include <QWidget>
 
 class QCheckBox;
@@ -34,6 +35,11 @@ public:
     /// Dòng trạng thái dưới bảng (số gói nhận được, lỗi mở cổng...).
     void setStatusText(const QString &text, bool isError = false);
 
+    /// Các chức năng đang bật mà phải tắt trước khi thoát phần mềm. Rỗng là
+    /// thoát được: nút "Thoát phần mềm" mở, ngược lại nó bị khoá và chú giải
+    /// của nó kể ra đang vướng những gì.
+    void setExitBlockers(const QStringList &busy);
+
 signals:
     /// Danh sách cổng nhận vừa đổi — cần lưu xuống params.json.
     ///
@@ -56,6 +62,9 @@ signals:
     /// Người dùng bấm nút Bắt đầu / Dừng gửi dữ liệu.
     void sendStartRequested();
     void sendStopRequested();
+
+    /// Người dùng bấm nút "Thoát phần mềm".
+    void exitRequested();
 
 private:
     void rebuildTable();
@@ -102,4 +111,6 @@ private:
     QPushButton  *m_txAdd    = nullptr;
     QPushButton  *m_txRemove = nullptr;
     QPushButton  *m_txToggle = nullptr;
+
+    QPushButton  *m_exit     = nullptr;
 };
