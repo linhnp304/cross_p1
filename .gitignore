@@ -56,3 +56,7 @@ records/
 # Python
 __pycache__/
 *.pyc
+
+# Icon phần mềm sinh ra từ tools/make_app_icon.sh (dựng lại được, nguồn là ảnh
+# mẫu trong docs-local/ vốn cũng không lên repo)
+tools/icons/
