@@ -21,6 +21,7 @@ class BeamParamsDialog;
 class ColorsTab;
 class ConnectionTab;
 class ControlTab;
+class FilterWindow;
 class LanIndicator;
 class ParamsTab;
 class Player;
@@ -83,9 +84,9 @@ private:
     QVector<NetEndpoint> activeRxEndpoints() const;
 
     /// Bảng cổng gửi đang có hiệu lực. Dòng Plot/Track chỉ mở khi công tắc
-    /// chung "Bắt đầu gửi dữ liệu" đang bật; dòng Command thì không phụ thuộc
-    /// nó — lệnh điều khiển đi ra vì trắc thủ vừa vặn một nút, chứ không phải
-    /// vì đang có dòng dữ liệu nào chảy.
+    /// chung "Bắt đầu gửi dữ liệu" đang bật; dòng Command và CtrlSync thì không
+    /// phụ thuộc nó — lệnh điều khiển và gói chiếm quyền đi ra vì trắc thủ vừa
+    /// bấm một nút, chứ không phải vì đang có dòng dữ liệu nào chảy.
     QVector<NetEndpoint> activeTxEndpoints() const;
 
     /// Gửi một gói lệnh điều khiển ra các dòng "Command".
@@ -93,6 +94,9 @@ private:
 
     /// Cùng đường đi ấy, cho hai gói lệnh của kit tạo tín hiệu ADF4159.
     void sendAdfCommand(int kind, const QByteArray &datagram);
+
+    /// Cùng đường đi ấy, cho bốn gói nạp hệ số bộ lọc.
+    void sendFilterCommand(int kind, const QByteArray &datagram);
 
     /// Câu nhắc khi bảng cổng gửi chưa có dòng "Command" nào dùng được. Hai
     /// đường gửi lệnh dùng chung một câu và chung một cờ "đã nhắc rồi".
@@ -102,8 +106,25 @@ private:
     /// Mở cửa sổ điều khiển kit ADF4159, dựng nó ở lần mở đầu tiên.
     void showAdf4159();
 
-    /// Đưa một gói trạng thái vừa nhận tới đúng nơi đọc nó. Tab "Điều khiển"
-    /// nhận trước; gói nào nó không nhận thì thử tới cửa sổ ADF4159.
+    /// Mở cửa sổ "Điều khiển các bộ lọc", dựng nó ở lần mở đầu tiên. Khác cửa sổ
+    /// ADF4159 ở một chỗ: **mỗi lần mở đều đọc lại bốn file dữ liệu**, xem
+    /// FilterWindow::reload().
+    void showFilterWindow();
+
+    // --- đồng bộ điều khiển giữa nhiều máy tính ---
+
+    /// Quảng bá một gói CTRL_SYNC mang địa chỉ máy này — gọi mỗi khi trắc thủ mở
+    /// khóa điều khiển. Các máy khác nghe được sẽ tự khóa lại.
+    void broadcastCtrlSync();
+
+    /// Một gói CTRL_SYNC vừa về. Gói do chính máy này quảng bá thì bỏ qua (đã xử
+    /// lý ngay lúc bấm nút); gói của máy khác thì khóa điều khiển lại và cập nhật
+    /// nhãn CtrlIP.
+    void applyCtrlSync(const QByteArray &datagram);
+
+    /// Đưa một gói vừa nhận ở đường trạng thái tới đúng nơi đọc nó: gói
+    /// CTRL_SYNC tách ra trước, rồi tới tab "Điều khiển", cửa sổ bộ lọc, cửa sổ
+    /// ADF4159 — nơi nào nhận thì dừng ở đó.
     void routeStatus(const QByteArray &datagram);
 
     /// Đẩy cách tính Video[1024] xuống luồng nhận dữ liệu.
@@ -235,6 +256,7 @@ private:
     PlotListWindow    *m_plotList    = nullptr;
     TrackInfoPopup    *m_trackInfo   = nullptr;
     Adf4159Window     *m_adfWindow   = nullptr;
+    FilterWindow      *m_filterWindow = nullptr;
 
     QLabel       *m_timeLabel   = nullptr;
     QLabel       *m_cursorLabel = nullptr;
@@ -259,6 +281,11 @@ private:
     /// này thì mỗi lần vặn một nút là một hộp thoại — mà lúc chưa cấu hình thì
     /// nút nào cũng vặn hụt.
     bool m_warnedNoCommandPort = false;
+
+    /// Số đếm của gói CTRL_SYNC gửi đi. Không lưu xuống file: dãy này chỉ để bên
+    /// nhận nhìn ra thứ tự trong một phiên, mà mở phần mềm lên là đang khóa điều
+    /// khiển nên chưa chiếm quyền gì.
+    quint32 m_ctrlSyncSerial = 0;
 
     /// Đang phát lại dữ liệu gốc (khác với dữ liệu đã qua xử lý). Quyết định cả
     /// đường đi của dữ liệu lẫn việc có cho bật ghi lưu hay không.

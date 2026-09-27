@@ -92,10 +92,13 @@ private:
     std::atomic<quint64> m_dropped{0};
 };
 
-/// Bộ đệm gói trạng thái lệnh điều khiển nhận ở cổng "Status".
+/// Bộ đệm gói trạng thái lệnh điều khiển nhận ở cổng "Status", và gói chiếm
+/// quyền điều khiển CTRL_SYNC nhận ở cổng "CtrlSync_R".
 ///
-/// Giữ nguyên dạng datagram: việc tách trường thuộc về tab "Điều khiển", mà luồng
-/// mạng thì không nên biết gì về giao diện. Vài gói mỗi giây nên trần để nhỏ.
+/// Giữ nguyên dạng datagram: việc tách trường thuộc về tab "Điều khiển", cửa sổ
+/// ADF4159, cửa sổ bộ lọc — mà luồng mạng thì không nên biết gì về giao diện.
+/// Hai loại đi chung một hàng đợi vì cả hai đều là "một datagram cần tới luồng
+/// giao diện nguyên vẹn", và cả hai đều chỉ vài gói mỗi giây nên trần để nhỏ.
 class StatusQueue
 {
 public:
@@ -117,6 +120,7 @@ struct LinkCounters {
     std::atomic<quint64> rawP{0};
     std::atomic<quint64> plotTc{0};
     std::atomic<quint64> status{0};
+    std::atomic<quint64> ctrlSync{0};
     std::atomic<quint64> other{0};
 
     void reset()
@@ -125,6 +129,7 @@ struct LinkCounters {
         rawP.store(0);
         plotTc.store(0);
         status.store(0);
+        ctrlSync.store(0);
         other.store(0);
     }
 };
@@ -135,6 +140,7 @@ struct LinkStats {
     quint64 rawP      = 0;   ///< số gói RAW_P (giai đoạn sau mới giải mã)
     quint64 plotTc    = 0;   ///< số gói PlotTC nhận từ ngoài
     quint64 status    = 0;   ///< số gói trạng thái lệnh điều khiển
+    quint64 ctrlSync  = 0;   ///< số gói CTRL_SYNC (kể cả gói của chính máy mình)
     quint64 other     = 0;   ///< datagram không khớp giao thức nào
     quint64 droppedV  = 0;   ///< lượt quét bị bỏ vì bộ đệm hiển thị đầy
     quint64 droppedP  = 0;   ///< chu kỳ RAW_P bị bỏ vì bộ đệm đầy
@@ -178,7 +184,7 @@ public:
     /// Điểm dấu tâm chùm nhận từ ngoài dưới dạng gói PlotTC.
     void drainPlotTc(QVector<PlotTC> &out) { m_plotTc.drain(out); }
 
-    /// Gói trạng thái lệnh điều khiển, còn nguyên dạng datagram.
+    /// Gói trạng thái lệnh điều khiển và gói CTRL_SYNC, còn nguyên dạng datagram.
     void drainStatus(QVector<QByteArray> &out) { m_status.drain(out); }
 
     LinkStats stats() const;

@@ -1,0 +1,61 @@
+# Đồng bộ điều khiển giữa nhiều máy tính — giai đoạn 13.
+#
+# Kịch bản dựng hai dòng "CtrlSync_R" / "CtrlSync_S" trong tab "Kết nối" để xem
+# phần điền sẵn, rồi mở khoá điều khiển để thấy nhãn CtrlIP đổi sang địa chỉ máy
+# mình kèm chữ "(local)".
+#
+#   cd build && ./ar0101-guidrv ../tests/scripts/dong-bo-dieu-khien.txt
+#
+# Muốn thấy nốt chiều còn lại — một máy khác chiếm quyền và máy này tự khoá lại
+# — thì chạy song song, trong lúc kịch bản đang ở đoạn `wait` cuối:
+#
+#   python3 tools/fake_ctrlsync.py --ctrl-ip 192.168.11.30
+#
+# Kịch bản **thêm dòng** vào hai bảng, mà bảng thì lưu xuống params.json — chạy
+# lại lần nữa là có thêm một cặp dòng thừa. Xoá build/params.json trước mỗi lần
+# chạy để về lại cấu hình mặc định.
+
+resize 1600 900
+tab "Kết nối"
+
+# --- bảng cổng nhận: thêm một dòng rồi đổi tên nó thành CtrlSync_R -----------
+# Cột "Tên" chỉ cho chọn, nên `cell` đi thẳng vào hộp chọn của ô đó. Bốn ô còn
+# lại tự điền: LocalIP theo dòng "Status", RemoteIP 0.0.0.0, cổng 9113 / 0.
+click #rxAdd
+cell #rxTable 3 0 CtrlSync_R
+cell #rxTable 3 1
+cell #rxTable 3 2
+cell #rxTable 3 3
+cell #rxTable 3 4
+
+# --- bảng cổng gửi: dòng Command trỏ đúng cổng công cụ giả lập, rồi thêm
+#     một dòng CtrlSync_S ------------------------------------------------------
+cell #txTable 0 5 6103
+click #txAdd
+cell #txTable 1 1 CtrlSync_S
+cell #txTable 1 0
+cell #txTable 1 2
+cell #txTable 1 3
+cell #txTable 1 4
+cell #txTable 1 5
+cell #txTable 1 6
+shot /tmp/dong-bo-1.png
+
+# Mở cổng nhận để nghe được gói CTRL_SYNC của máy khác.
+click "Bắt đầu nhận dữ liệu"
+wait 400
+
+# --- mở khoá điều khiển: quảng bá một gói và đổi nhãn ------------------------
+tab "Điều khiển"
+click "Mở khóa điều khiển"
+wait 300
+text #ctrlIpLabel
+shot /tmp/dong-bo-2.png
+
+# Chỗ để chạy fake_ctrlsync.py từ cửa sổ dòng lệnh khác. Sau khi nó gửi, nhãn
+# phải đổi sang địa chỉ của máy kia (không còn chữ "local") và nút quay về
+# "Mở khóa điều khiển".
+wait 8000
+text #ctrlIpLabel
+text #lockButton
+shot /tmp/dong-bo-3.png

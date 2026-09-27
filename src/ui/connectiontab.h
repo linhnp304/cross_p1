@@ -12,8 +12,11 @@ class QTableWidget;
 
 /// Tab "Kết nối" trong panel 2.1 — danh sách cổng UDP và nút bật/tắt nhận dữ liệu.
 ///
-/// Cột "Tên" chỉ là nhãn cho người đọc: gói tin được phân loại theo header của
-/// chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
+/// Cột "Tên" gần như chỉ là nhãn cho người đọc: gói tin được phân loại theo
+/// header của chính nó, nên gộp hai loại vào một cổng cũng không làm hỏng việc
+/// giải mã. Hai ngoại lệ là "Status" và "CtrlSync_R" — hai dòng ấy được nhận
+/// diện **theo tên**, nên cột này chỉ cho chọn trong danh sách chứ không cho gõ
+/// tay (xem AppParams::rxNames()).
 class ConnectionTab : public QWidget
 {
     Q_OBJECT
@@ -77,6 +80,14 @@ private:
 
     void onCellChanged();
 
+    /// Cột "Tên" của một dòng nhận vừa đổi sang `name`: điền sẵn địa chỉ và cổng
+    /// mặc định của loại đó. Chỉ có loại "CtrlSync_R" cần tới, vì cổng 9113 và
+    /// cách nhận quảng bá của nó không giống dòng nào khác.
+    void applyRxNameDefaults(int row, const QString &name);
+
+    /// Tương tự cho cột "Loại dữ liệu" của bảng gửi, loại "CtrlSync_S".
+    void applyTxKindDefaults(int row, TxKind kind);
+
     // --- bảng cổng gửi ---
     void rebuildTxTable();
     void addTxRow();
@@ -87,7 +98,8 @@ private:
     /// Dựng các widget trong ô của một dòng gửi (hai ô đánh dấu và ComboBox).
     void fillTxWidgets(int row, const NetEndpoint &e);
 
-    /// Ép ô "Gửi" của dòng Command tích sẵn và khoá lại.
+    /// Ép ô "Gửi" của các dòng luôn gửi (Command, CtrlSync_S) tích sẵn và khoá
+    /// lại — xem NetEndpoint::alwaysSends().
     void syncTxSendBoxes();
 
     /// Làm mờ dòng "Status" khi ô tự động đang bật — dòng vẫn sửa được, chỉ là

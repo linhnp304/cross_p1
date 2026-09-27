@@ -2,7 +2,9 @@
 
 #include "net/adfproto.h"
 #include "net/cmdproto.h"
+#include "net/filterproto.h"
 #include "net/packetio.h"
+#include "net/syncproto.h"
 
 #include <QDateTime>
 #include <QHostAddress>
@@ -356,15 +358,25 @@ void UdpWorker::read(const Bound &b)
                 spool->push(rec::RecType::Plot, nowMs, payload);
             m_counters->plotTc.fetch_add(1, std::memory_order_relaxed);
         } else if (cmdproto::isStatus(raw, len)
-                   || adfproto::isStatus(raw, len)) {
-            // Trạng thái phản hồi lệnh điều khiển — của đài hoặc của kit
-            // ADF4159. Đẩy nguyên datagram sang luồng giao diện, tách trường là
-            // việc của tab "Điều khiển" và cửa sổ ADF4159; luồng này không nên
-            // biết gì về giao diện.
+                   || adfproto::isStatus(raw, len)
+                   || filterproto::isStatus(raw, len)) {
+            // Trạng thái phản hồi lệnh điều khiển — của đài, của kit ADF4159,
+            // hay của lệnh nạp bộ lọc. Đẩy nguyên datagram sang luồng giao diện,
+            // tách trường là việc của tab "Điều khiển" và hai cửa sổ điều khiển;
+            // luồng này không nên biết gì về giao diện.
             m_status->push(payload);
             if (recProc)
                 spool->push(rec::RecType::Other, nowMs, payload);
             m_counters->status.fetch_add(1, std::memory_order_relaxed);
+        } else if (syncproto::isSync(raw, len)) {
+            // Gói chiếm quyền điều khiển từ một máy tính khác trong hệ thống —
+            // hay từ chính máy này, vì nó được quảng bá. Phân biệt hai trường
+            // hợp ấy cần biết LocalIP của dòng "CtrlSync_R", mà đó là chuyện của
+            // luồng giao diện; ở đây chỉ chuyển gói đi.
+            m_status->push(payload);
+            if (recProc)
+                spool->push(rec::RecType::Other, nowMs, payload);
+            m_counters->ctrlSync.fetch_add(1, std::memory_order_relaxed);
         } else {
             // Gói chưa giải mã được (trạng thái hệ thống...) vẫn giữ nguyên vào
             // file dữ liệu đã xử lý — giai đoạn sau bổ sung phần giải mã là đọc
@@ -456,6 +468,7 @@ LinkStats UdpLink::stats() const
     s.rawP       = m_counters.rawP.load(std::memory_order_relaxed);
     s.plotTc     = m_counters.plotTc.load(std::memory_order_relaxed);
     s.status     = m_counters.status.load(std::memory_order_relaxed);
+    s.ctrlSync   = m_counters.ctrlSync.load(std::memory_order_relaxed);
     s.other      = m_counters.other.load(std::memory_order_relaxed);
     s.droppedV   = m_sweeps.dropped();
     s.droppedP   = m_cycles.dropped();

@@ -1,0 +1,54 @@
+# Cửa sổ "Điều khiển các bộ lọc" — giai đoạn 13.
+#
+# Chạy song song `python3 tools/fake_control.py --disobey` rồi bấm "Bắt đầu nhận
+# dữ liệu" ở tab "Kết nối" trước thì thấy cả cột R và vệt đỏ báo lệch; không có
+# công cụ đó thì cột R vẫn là 0x00000000 và nút "Gửi lệnh" báo chưa có cổng lệnh.
+#
+#   cd build && ./ar0101-guidrv ../tests/scripts/bo-loc.txt
+#
+# Cần bốn file hệ số trong build/filter — copy từ docs-local/filter.
+
+resize 1600 900
+tab "Điều khiển"
+
+# Đang khóa điều khiển: nút mở cửa sổ bộ lọc phải đang bị khoá, bấm không ra gì.
+click #filterButton
+windows
+
+# Mở khóa rồi bấm lại. Mở khóa cũng là lúc một gói CTRL_SYNC được quảng bá —
+# nhãn CtrlIP đổi theo.
+click "Mở khóa điều khiển"
+text #ctrlIpLabel
+click #filterButton
+wait 300
+windows
+shot /tmp/bo-loc-1.png #filterWindow
+
+# Rỗng là đọc được cả bốn file.
+text #filterErrors
+
+# Sửa một ô cột S: dòng 1 của FIR (cột 1). Ô nhận cả dạng có 0x lẫn không có,
+# và hiện lại thành 0x0000ABCD. Dòng ngoài dải của bộ lọc thì không sửa được:
+# MTK chỉ có 16 phần tử nên dòng 20 (chỉ số 19, cột 7) để trắng.
+cell #filterTable 0 1 abcd
+cell #filterTable 0 2
+cell #filterTable 19 7 1234
+
+# Gửi bốn gói cách nhau 100 ms — chờ đủ rồi mới đọc dòng trạng thái. Có
+# fake_control.py chạy song song (và đã bấm "Bắt đầu nhận dữ liệu") thì cột R
+# của cả bốn bộ lọc có số, và dòng 1 của mỗi bộ lệch một đơn vị vì --disobey.
+click #filterSend
+wait 900
+text #filterStatus
+cell #filterTable 0 2
+cell #filterTable 1 2
+cell #filterTable 0 4
+cell #filterTable 0 6
+cell #filterTable 0 8
+shot /tmp/bo-loc-2.png #filterWindow
+
+# Khóa điều khiển lại thì cửa sổ phải tự đóng.
+tab "Điều khiển"
+click "Khóa điều khiển"
+wait 300
+windows

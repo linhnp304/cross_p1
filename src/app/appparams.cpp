@@ -19,17 +19,19 @@ namespace {
 QString kindToString(TxKind k)
 {
     switch (k) {
-    case TxKind::Track:   return QStringLiteral("track");
-    case TxKind::Command: return QStringLiteral("command");
-    case TxKind::Plot:    break;
+    case TxKind::Track:    return QStringLiteral("track");
+    case TxKind::Command:  return QStringLiteral("command");
+    case TxKind::CtrlSync: return QStringLiteral("ctrlsync");
+    case TxKind::Plot:     break;
     }
     return QStringLiteral("plot");
 }
 
 TxKind kindFromString(const QString &s)
 {
-    if (s == QLatin1String("track"))   return TxKind::Track;
-    if (s == QLatin1String("command")) return TxKind::Command;
+    if (s == QLatin1String("track"))    return TxKind::Track;
+    if (s == QLatin1String("command"))  return TxKind::Command;
+    if (s == QLatin1String("ctrlsync")) return TxKind::CtrlSync;
     return TxKind::Plot;
 }
 
@@ -57,7 +59,7 @@ NetEndpoint endpointFromJson(const QJsonObject &o)
     e.remotePort = quint16(qBound(0, o.value(QStringLiteral("remotePort")).toInt(), 65535));
     e.kind       = kindFromString(o.value(QStringLiteral("kind")).toString());
     e.broadcast  = o.value(QStringLiteral("broadcast")).toBool(false);
-    e.enabled    = e.kind == TxKind::Command;
+    e.enabled    = e.alwaysSends();
     return e;
 }
 
@@ -364,7 +366,7 @@ rawpkt::VideoScale AppParams::videoScale() const
 QStringList AppParams::rxNames()
 {
     return {QStringLiteral("RAW_V"), QStringLiteral("RAW_P"),
-            statusRowName(), QStringLiteral("Plot")};
+            statusRowName(), plotRowName(), ctrlSyncRowName()};
 }
 
 QString AppParams::statusRowName()
@@ -372,17 +374,64 @@ QString AppParams::statusRowName()
     return QStringLiteral("Status");
 }
 
+QString AppParams::plotRowName()
+{
+    return QStringLiteral("Plot");
+}
+
+QString AppParams::ctrlSyncRowName()
+{
+    return QStringLiteral("CtrlSync_R");
+}
+
 bool AppParams::isStatusRow(const NetEndpoint &e)
 {
-    // Không phân biệt hoa thường: ô tên sửa được nên "status" gõ tay cũng phải
-    // được hiểu là chính dòng đó.
+    // Không phân biệt hoa thường: file params.json sửa tay có thể ghi "status",
+    // mà đó vẫn là chính dòng ấy.
     return e.name.trimmed().compare(statusRowName(), Qt::CaseInsensitive) == 0;
+}
+
+bool AppParams::isCtrlSyncName(const QString &name)
+{
+    return name.trimmed().compare(ctrlSyncRowName(), Qt::CaseInsensitive) == 0;
+}
+
+bool AppParams::isCtrlSyncRow(const NetEndpoint &e)
+{
+    return isCtrlSyncName(e.name);
+}
+
+QString AppParams::statusLocalIp() const
+{
+    for (const NetEndpoint &e : rx) {
+        if (isStatusRow(e) && !e.localIp.trimmed().isEmpty())
+            return e.localIp.trimmed();
+    }
+    return fallbackLocalIp();
+}
+
+QString AppParams::ctrlSyncLocalIp() const
+{
+    for (const NetEndpoint &e : rx) {
+        if (isCtrlSyncRow(e))
+            return e.localIp.trimmed();
+    }
+    return {};
+}
+
+QString AppParams::ctrlSyncTxLocalIp() const
+{
+    for (const NetEndpoint &e : tx) {
+        if (e.kind == TxKind::CtrlSync)
+            return e.localIp.trimmed();
+    }
+    return {};
 }
 
 QStringList AppParams::txKindNames()
 {
     return {QStringLiteral("Plot"), QStringLiteral("Track"),
-            QStringLiteral("Command")};
+            QStringLiteral("Command"), QStringLiteral("CtrlSync_S")};
 }
 
 QVector<NetEndpoint> AppParams::defaultTx()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Đóng vai đài để thử tab "Điều khiển" và cửa sổ "Điều khiển ADF4159".
+"""Đóng vai đài để thử tab "Điều khiển" và hai cửa sổ điều khiển riêng.
 
 Công cụ nghe trên cổng lệnh (dòng "Command" trong bảng cổng gửi), giải mã gói
 lệnh vừa nhận rồi trả về một gói **trạng thái phản hồi** — cùng bố cục, chỉ khác
@@ -10,6 +10,7 @@ trường Category. Nhờ vậy thử được cả hai chiều mà không cần
   * nhóm nút chọn đổi màu đúng lựa chọn ứng với trạng thái
   * ba trường chỉ nhận trạng thái (AT_Azm, Beta_Back, HW_Version) có số để hiện
   * dòng giá trị trả về dưới mỗi ô thanh ghi của cửa sổ ADF4159
+  * cột R của cửa sổ "Điều khiển các bộ lọc" và cặp serial trên nhãn cột
 
     python3 tools/fake_control.py
     python3 tools/fake_control.py --disobey        # trả về khác lệnh, để xem chữ đỏ
@@ -24,8 +25,8 @@ một cổng cố định, tức dòng "Status" trong bảng cổng nhận. Kit 
 
 Dừng bằng Ctrl+C.
 
-Bảng trường đầy đủ nằm ở src/net/cmdproto.h và src/net/adfproto.h — ở đây chỉ
-cần đúng chừng này để dựng lại gói trả lời.
+Bảng trường đầy đủ nằm ở src/net/cmdproto.h, src/net/adfproto.h và
+src/net/filterproto.h — ở đây chỉ cần đúng chừng này để dựng lại gói trả lời.
 """
 
 import argparse
@@ -50,6 +51,12 @@ PACKETS = {
     0xE4E3E2E1: ("CMD_DSP_S",  0x90180, 27, {}, False),
     0xADF4159A: ("CMD_ADF4159_REG8", 0x50180, 14, {}, True),
     0xADF4159B: ("CMD_ADF4159_REG",  0x60180,  7, {}, True),
+    # Bốn gói nạp bộ lọc. Thân gói là hệ số bộ lọc nên in ra dạng hex, và dài
+    # tới 1024 từ nên phần in ra bị cắt bớt — xem chỗ gọi format_body().
+    0xD5D4D3D2: ("FILTER_FIR", 0x80190,   39, {}, True),
+    0xD6D5D4D3: ("FILTER_WFC", 0x80210, 1030, {}, True),
+    0xD7D6D5D4: ("FILTER_STF", 0x80220,  518, {}, True),
+    0xD8D7D6D5: ("FILTER_MTK", 0x90190,   22, {}, True),
 }
 
 # Trường đem ra "không nghe lời" khi bật --disobey, cho mỗi loại gói: một nhóm
@@ -72,6 +79,17 @@ DISOBEY_ADF = {
 }
 DISOBEY_ADF_BIT = 1 << 30
 
+# Phần tử Filter[] đem ra "không nghe lời", cho bốn gói nạp bộ lọc: phần tử đầu
+# và phần tử cuối của mỗi bộ, để thấy vệt đỏ ở cả đầu bảng lẫn cuối vùng dữ liệu
+# của cột đó. Lật bit thấp nhất chứ không gán số khác — giá trị trả về vẫn trông
+# như một hệ số thật, chỉ lệch đúng một đơn vị.
+DISOBEY_FILTER = {
+    "FILTER_FIR": [0, 32],
+    "FILTER_WFC": [0, 1023],
+    "FILTER_STF": [0, 511],
+    "FILTER_MTK": [0, 15],
+}
+
 # Phiên bản HW giả: 0xyyMMddhh, hiện lên thành 2026/08/09-15.
 HW_VERSION = 0x26080915
 
@@ -83,6 +101,13 @@ def words(data):
 
 def build(w):
     return struct.pack(f"<{len(w)}I", *w)
+
+
+def format_body(values, as_hex, limit=8):
+    """Thân gói viết ra một dòng, cắt bớt nếu dài — gói bộ lọc có 1024 từ."""
+    fmt = (lambda x: f"0x{x:08X}") if as_hex else str
+    head = " ".join(fmt(x) for x in values[:limit])
+    return head if len(values) <= limit else f"{head} ... ({len(values)} từ)"
 
 
 def main():
@@ -98,8 +123,8 @@ def main():
                     help="cổng nhận trạng thái của phần mềm; mặc định 0 = trả "
                          "về đúng cổng nguồn của gói lệnh, như đài thật")
     ap.add_argument("--disobey", action="store_true",
-                    help="trả về giá trị khác lệnh ở vài trường, để xem phần "
-                         "báo lệch bằng chữ đỏ")
+                    help="trả về giá trị khác lệnh ở vài trường (và vài hệ số "
+                         "bộ lọc), để xem phần báo lệch bằng chữ đỏ")
     ap.add_argument("--quiet", action="store_true", help="bớt in ra màn hình")
     args = ap.parse_args()
 
@@ -151,6 +176,8 @@ def main():
                     out[5 + i] = v
                 for i in DISOBEY_ADF.get(name, []):
                     out[5 + i] ^= DISOBEY_ADF_BIT
+                for i in DISOBEY_FILTER.get(name, []):
+                    out[5 + i] ^= 1
 
             # Đài thật trả lời về đúng nơi câu hỏi đi ra, nên mặc định ở đây
             # cũng vậy. --status-port là để thử lại kiểu cổng cố định.
@@ -159,8 +186,7 @@ def main():
             tx.sendto(build(out), dest)
             n += 1
             if not args.quiet:
-                fmt = (lambda x: f"0x{x:08X}") if as_hex else str
-                body = " ".join(fmt(x) for x in w[5:nwords - 1])
+                body = format_body(w[5:nwords - 1], as_hex)
                 print(f"[{n:4d}] {name} serial={w[3]} từ {src[0]}:{src[1]}"
                       f" -> {dest[0]}:{dest[1]}\n"
                       f"       {body}")

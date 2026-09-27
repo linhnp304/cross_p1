@@ -8,9 +8,12 @@
 #include "ui/compacttabs.h"
 #include "ui/connectiontab.h"
 #include "ui/controltab.h"
+#include "ui/filterwindow.h"
+#include "proc/filterdata.h"
 #include "maps/geo.h"
 #include "ui/lanstatus.h"
 #include "net/packetio.h"
+#include "net/syncproto.h"
 #include "ui/paramstab.h"
 #include "record/player.h"
 #include "ui/plotlistwindow.h"
@@ -40,6 +43,7 @@
 #include <QSet>
 #include <QShortcut>
 #include <QSplitter>
+#include <QTime>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -110,6 +114,11 @@ MainWindow::MainWindow(QWidget *parent)
     // vừa xoá cứ mọc lại mãi.
     if (!hadParams)
         m_params.tx = AppParams::defaultTx();
+
+    // Thư mục ./filter dựng ngay lúc chạy, kể cả khi chưa ai mở cửa sổ bộ lọc:
+    // người lắp đặt phải tự copy bốn file hệ số vào đó, mà thư mục chưa tồn tại
+    // thì không có chỗ nào trên máy chỉ ra rằng phải copy vào đâu.
+    filterdata::ensureDir();
 
     m_radar = new RadarView(this);
     m_radar->setVideo(&m_video);
@@ -197,12 +206,23 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::applyStatusToParams);
     connect(m_controlTab, &ControlTab::adf4159Requested,
             this, &MainWindow::showAdf4159);
+    connect(m_controlTab, &ControlTab::filterRequested,
+            this, &MainWindow::showFilterWindow);
     connect(m_controlTab, &ControlTab::lockChanged, this, [this](bool locked) {
-        // Cửa sổ ADF4159 cũng ra lệnh cho đài, mà nút mở nó thì nằm trong tab
-        // vừa bị khoá — để cửa sổ mở tiếp thì khoá điều khiển chẳng khoá được
-        // đường lệnh nào cả.
-        if (locked && m_adfWindow)
-            m_adfWindow->close();
+        // Hai cửa sổ điều khiển riêng cũng ra lệnh cho đài, mà nút mở chúng thì
+        // nằm trong tab vừa bị khoá — để cửa sổ mở tiếp thì khoá điều khiển
+        // chẳng khoá được đường lệnh nào cả.
+        if (locked) {
+            if (m_adfWindow)
+                m_adfWindow->close();
+            if (m_filterWindow)
+                m_filterWindow->close();
+            return;
+        }
+        // Vừa chiếm quyền điều khiển: nói cho các máy tính khác trong hệ thống
+        // biết, để chúng tự khoá lại. Tín hiệu này chỉ phát khi trạng thái thật
+        // sự đổi (xem ControlTab::lockChanged), nên đúng một gói cho một cú bấm.
+        broadcastCtrlSync();
     });
 
     // --- ghi lưu và phát lại ---
@@ -717,7 +737,7 @@ QVector<NetEndpoint> MainWindow::activeTxEndpoints() const
     QVector<NetEndpoint> out;
     out.reserve(m_params.tx.size());
     for (const NetEndpoint &e : m_params.tx) {
-        if (e.kind == TxKind::Command || m_txOn)
+        if (e.alwaysSends() || m_txOn)
             out.push_back(e);
     }
     return out;
@@ -772,6 +792,18 @@ void MainWindow::sendAdfCommand(int kind, const QByteArray &datagram)
     }
 }
 
+void MainWindow::sendFilterCommand(int kind, const QByteArray &datagram)
+{
+    // Cùng dòng "Command" với mọi lệnh khác: bộ lọc nằm trong chính khối DSP của
+    // đài, không có đường gửi riêng.
+    const bool ok = m_sender->send(TxKind::Command, datagram);
+    m_filterWindow->setSendResult(kind, ok);
+    if (!ok) {
+        m_filterWindow->setStatusText(noCommandPortMsg(), true);
+        warnNoCommandPort();
+    }
+}
+
 void MainWindow::warnNoCommandPort()
 {
     // Hộp thoại đúng một lần: chưa cấu hình thì nút nào vặn cũng hụt, mà mỗi
@@ -809,13 +841,121 @@ void MainWindow::showAdf4159()
     m_adfWindow->activateWindow();
 }
 
+void MainWindow::showFilterWindow()
+{
+    if (!m_filterWindow) {
+        m_filterWindow = new FilterWindow(this);
+        connect(m_filterWindow, &FilterWindow::commandReady,
+                this, &MainWindow::sendFilterCommand);
+    }
+    // Đọc lại đĩa **mỗi lần mở**, khác cửa sổ ADF4159 (cửa sổ ấy giữ nguyên giá
+    // trị đang có trên màn hình). Thư mục ./filter là chỗ người lắp đặt copy file
+    // vào, nên sửa file rồi mở lại cửa sổ phải thấy ngay giá trị mới.
+    m_filterWindow->reload();
+    m_filterWindow->show();
+    m_filterWindow->raise();
+    m_filterWindow->activateWindow();
+}
+
+void MainWindow::broadcastCtrlSync()
+{
+    // Địa chỉ đi trong gói là LocalIP của dòng "CtrlSync_S" — đúng như mô tả giao
+    // thức. Không lấy địa chỉ của card mạng đang thật sự đi ra: hai thứ có thể
+    // khác nhau (LocalIP để trống nghĩa là "theo bảng định tuyến"), mà bên nhận
+    // thì so trường này với LocalIP của dòng "CtrlSync_R" của chính nó.
+    const QString local = m_params.ctrlSyncTxLocalIp();
+    if (local.isEmpty()) {
+        m_controlTab->setCtrlIpText(QString(), false);
+        m_controlTab->setStatusText(
+            tr("Chưa đồng bộ được quyền điều khiển — vào tab \"Kết nối\", bảng "
+               "\"Cổng UDP gửi dữ liệu\", thêm một dòng loại \"CtrlSync_S\"."),
+            true);
+        return;
+    }
+
+    // Trường CtrlIP chỉ có chỗ cho một địa chỉ IPv4. Ô LocalIP nhận cả địa chỉ
+    // IPv6 (bảng chỉ kiểm tra "có phải địa chỉ hợp lệ không"), mà gửi đi thì nó
+    // thành số 0 — các máy khác đọc ra "0.0.0.0" và không đối chiếu được với gì.
+    bool ipv4 = false;
+    const quint32 ctrlIp = QHostAddress(local).toIPv4Address(&ipv4);
+    if (!ipv4) {
+        m_controlTab->setCtrlIpText(QString(), false);
+        m_controlTab->setStatusText(
+            tr("LocalIP của dòng \"CtrlSync_S\" (%1) không phải địa chỉ IPv4 — "
+               "gói chiếm quyền điều khiển không mang được địa chỉ nào.")
+                .arg(local), true);
+        return;
+    }
+
+    ++m_ctrlSyncSerial;
+    const quint32 timeMs = quint32(QTime::currentTime().msecsSinceStartOfDay());
+    const QByteArray dg =
+        syncproto::build(ctrlIp, m_ctrlSyncSerial, timeMs);
+
+    if (!m_sender->send(TxKind::CtrlSync, dg)) {
+        // Gói không ra khỏi máy thì số Serial đó chưa dùng — trả lại, cùng lối
+        // với hai đường gửi lệnh.
+        --m_ctrlSyncSerial;
+        m_controlTab->setStatusText(
+            tr("Không gửi được gói chiếm quyền điều khiển — kiểm tra dòng "
+               "\"CtrlSync_S\" trong bảng \"Cổng UDP gửi dữ liệu\"."), true);
+    } else {
+        m_controlTab->setStatusText(
+            tr("Đã chiếm quyền điều khiển và báo cho các máy khác (%1 gói)")
+                .arg(m_sender->sentCtrlSync()));
+    }
+
+    // Nhãn đi theo cú bấm nút, không đợi gói quảng bá vừa gửi về tới cổng nhận:
+    // gói ấy có về hay không còn tuỳ mạng và tuỳ đã bấm "Bắt đầu nhận dữ liệu"
+    // chưa, mà chính máy này thì đã mở khoá rồi.
+    m_controlTab->setCtrlIpText(local, true);
+}
+
+void MainWindow::applyCtrlSync(const QByteArray &datagram)
+{
+    quint32 serial = 0, timeMs = 0, ctrlIp = 0;
+    syncproto::parse(datagram.constData(), serial, timeMs, ctrlIp);
+    const QHostAddress who(ctrlIp);
+
+    // Gói quảng bá của chính máy này cũng về đúng cổng "CtrlSync_R" của nó —
+    // cùng cổng, cùng dải quảng bá. Nhận ra bằng cách so trường CtrlIP với
+    // LocalIP của dòng "CtrlSync_R", đúng như mô tả giao thức nêu. Gói của mình
+    // thì bỏ qua: nhãn và trạng thái khoá đã xử lý ngay lúc bấm nút.
+    const QString mine = m_params.ctrlSyncLocalIp();
+    if (!mine.isEmpty()
+        && QHostAddress(mine).isEqual(who, QHostAddress::TolerantConversion))
+        return;
+
+    m_controlTab->setCtrlIpText(who.toString(), false);
+    if (!m_controlTab->isLocked()) {
+        // Máy khác vừa chiếm quyền: khoá lại ngay. setLocked(true) cũng đóng hai
+        // cửa sổ điều khiển riêng và kéo các ô về giá trị đài đang báo — đúng
+        // việc phải làm, vì từ lúc này tab chỉ còn để theo dõi.
+        m_controlTab->setLocked(true);
+        m_controlTab->setStatusText(
+            tr("Máy %1 vừa chiếm quyền điều khiển — máy này đã tự khoá lại.")
+                .arg(who.toString()), true);
+    }
+}
+
 void MainWindow::routeStatus(const QByteArray &datagram)
 {
+    // Gói chiếm quyền điều khiển đi chung hàng đợi với trạng thái lệnh (xem
+    // StatusQueue), nên lọc nó ra ngay đây — nó không phải trạng thái phản hồi
+    // của lệnh nào cả.
+    if (syncproto::isSync(datagram.constData(), datagram.size())) {
+        applyCtrlSync(datagram);
+        return;
+    }
+
     if (m_controlTab->applyStatus(datagram))
         return;
-    // Trạng thái của kit ADF4159 chỉ đọc được khi cửa sổ của nó đã dựng — mà
-    // kit cũng chỉ trả lời khi có lệnh gửi đi, mà lệnh thì chỉ gửi được từ
-    // chính cửa sổ đó. Nên chưa mở lần nào thì cũng chưa có gì để mất.
+    // Trạng thái của kit ADF4159 và của lệnh nạp bộ lọc chỉ đọc được khi cửa sổ
+    // tương ứng đã dựng — mà cả hai cũng chỉ trả lời khi có lệnh gửi đi, mà lệnh
+    // thì chỉ gửi được từ chính cửa sổ đó. Nên chưa mở lần nào thì cũng chưa có
+    // gì để mất.
+    if (m_filterWindow && m_filterWindow->applyStatus(datagram))
+        return;
     if (m_adfWindow)
         m_adfWindow->applyStatus(datagram);
 }
@@ -1478,6 +1618,8 @@ void MainWindow::refreshLinkStatus()
     QString text = tr("Đang nhận — RAW_V: %1, RAW_P: %2").arg(s.rawV).arg(s.rawP);
     if (s.status > 0)
         text += tr(", trạng thái lệnh: %1").arg(s.status);
+    if (s.ctrlSync > 0)
+        text += tr(", CtrlSync: %1").arg(s.ctrlSync);
     if (s.other > 0)
         text += tr(", gói lạ: %1").arg(s.other);
     if (s.droppedV > 0 || s.droppedP > 0 || s.droppedRec > 0) {

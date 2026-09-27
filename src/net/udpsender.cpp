@@ -2,33 +2,11 @@
 
 #include "net/adfproto.h"
 #include "net/cmdproto.h"
+#include "net/filterproto.h"
+#include "net/netaddr.h"
 
 #include <QNetworkDatagram>
-#include <QNetworkInterface>
 #include <QUdpSocket>
-
-namespace {
-
-/// Địa chỉ quảng bá của dải chứa `want`, tra trong các card mạng của máy.
-///
-/// Không tự thay số cuối bằng 255: cách đó chỉ đúng với dải /24. Hỏi card mạng
-/// thì được đúng địa chỉ quảng bá của dải thật, kể cả /16 hay /25.
-QHostAddress broadcastFor(const QHostAddress &want)
-{
-    for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
-        for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
-            if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol)
-                continue;
-            if (entry.netmask().isNull() || entry.broadcast().isNull())
-                continue;
-            if (want.isInSubnet(entry.ip(), entry.prefixLength()))
-                return entry.broadcast();
-        }
-    }
-    return {};
-}
-
-} // namespace
 
 UdpSender::UdpSender(QObject *parent)
     : QObject(parent)
@@ -58,7 +36,7 @@ QHostAddress UdpSender::resolveTarget(const NetEndpoint &e, QString &error) cons
     if (!e.broadcast)
         return remote;
 
-    if (const QHostAddress b = broadcastFor(remote); !b.isNull())
+    if (const QHostAddress b = netaddr::broadcastFor(remote); !b.isNull())
         return b;
 
     // Không card nào của máy nằm cùng dải với RemoteIP — gửi quảng bá kiểu gì
@@ -189,7 +167,8 @@ void UdpSender::readStatus(QUdpSocket *socket)
         // hệt cách bên nhận phân loại (xem UdpWorker::read).
         const QByteArray payload = dg.data();
         if (!cmdproto::isStatus(payload.constData(), payload.size())
-            && !adfproto::isStatus(payload.constData(), payload.size()))
+            && !adfproto::isStatus(payload.constData(), payload.size())
+            && !filterproto::isStatus(payload.constData(), payload.size()))
             continue;
 
         ++m_recvStatus;
@@ -255,9 +234,10 @@ bool UdpSender::send(TxKind kind, const QByteArray &datagram)
         return false;
 
     switch (kind) {
-    case TxKind::Plot:    ++m_sentPlots;    break;
-    case TxKind::Track:   ++m_sentTracks;   break;
-    case TxKind::Command: ++m_sentCommands; break;
+    case TxKind::Plot:     ++m_sentPlots;    break;
+    case TxKind::Track:    ++m_sentTracks;   break;
+    case TxKind::Command:  ++m_sentCommands; break;
+    case TxKind::CtrlSync: ++m_sentCtrlSync; break;
     }
     return true;
 }

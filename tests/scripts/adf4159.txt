@@ -2,9 +2,14 @@
 # một bộ tham số quét tần và chụp lại phần thanh ghi.
 #
 # Cần bảng cổng gửi đã có một dòng "Command" (mặc định đã có sẵn), nếu không thì
-# nút Ghi nào cũng hụt và hiện dòng chữ đỏ.
+# nút Ghi nào cũng hụt và hiện dòng chữ đỏ. Kịch bản mở khóa điều khiển trước —
+# không có bước đó thì nút mở cửa sổ đang bị khoá và mọi lệnh sau đều hụt đích.
 
 tab "Điều khiển"
+wait 300
+
+# Nút mở cửa sổ chỉ enable khi đã mở khóa điều khiển (từ giai đoạn 12).
+click "Mở khóa điều khiển"
 wait 300
 
 click "Điều khiển ADF4159"

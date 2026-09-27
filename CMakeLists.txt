@@ -31,8 +31,8 @@ qt_standard_project_setup()
 #
 #   app     khởi tạo, cửa sổ chính, hai file cấu hình
 #   net     giao thức gói tin, luồng nhận UDP, phía gửi
-#   proc    tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159 — thuần thuật
-#           toán, không đụng Qt Widgets
+#   proc    tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159, đọc hệ số bộ
+#           lọc — thuần thuật toán, không đụng Qt Widgets
 #   record  ghi lưu và phát lại
 #   maps    nền bản đồ số, chiếu toạ độ
 #   ui      các tab, cửa sổ con và phần vẽ
@@ -58,18 +58,23 @@ set(AR_SOURCES
     # --- net: giao thức gói tin, nhận và gửi UDP ---
     src/net/adfproto.h
     src/net/cmdproto.h
+    src/net/filterproto.h
+    src/net/netaddr.h
     src/net/packetio.h
     src/net/rawpacket.h
+    src/net/syncproto.h
     src/net/udplink.cpp
     src/net/udplink.h
     src/net/udpsender.cpp
     src/net/udpsender.h
 
-    # --- proc: tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159 ---
+    # --- proc: tách tâm chùm xung, bám quỹ đạo, thanh ghi ADF4159, hệ số bộ lọc ---
     src/proc/adf4159.cpp
     src/proc/adf4159.h
     src/proc/beamcenter.cpp
     src/proc/beamcenter.h
+    src/proc/filterdata.cpp
+    src/proc/filterdata.h
     src/proc/plotstore.h
     src/proc/plottrack.h
     src/proc/procparams.h
@@ -112,6 +117,8 @@ set(AR_SOURCES
     src/ui/connectiontab.h
     src/ui/controltab.cpp
     src/ui/controltab.h
+    src/ui/filterwindow.cpp
+    src/ui/filterwindow.h
     src/ui/lanstatus.cpp
     src/ui/lanstatus.h
     src/ui/paramstab.cpp

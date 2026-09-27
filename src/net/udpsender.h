@@ -53,6 +53,7 @@ public:
     quint64 sentPlots() const    { return m_sentPlots; }
     quint64 sentTracks() const   { return m_sentTracks; }
     quint64 sentCommands() const { return m_sentCommands; }
+    quint64 sentCtrlSync() const { return m_sentCtrlSync; }
     quint64 recvStatus() const   { return m_recvStatus; }
 
 signals:
@@ -97,5 +98,6 @@ private:
     quint64 m_sentPlots    = 0;
     quint64 m_sentTracks   = 0;
     quint64 m_sentCommands = 0;
+    quint64 m_sentCtrlSync = 0;
     quint64 m_recvStatus   = 0;
 };

@@ -24,8 +24,8 @@ Mỗi thư mục con của `src/` là một tầng của phần mềm:
 | Thư mục | Chứa gì |
 |---|---|
 | `app/` | Khởi tạo, cửa sổ chính, hai file cấu hình (`AppSettings`, `AppParams`) |
-| `net/` | Giao thức gói tin (`rawpacket`, `packetio`, `cmdproto`), luồng nhận UDP, phía gửi |
-| `proc/` | Tách tâm chùm xung, bám quỹ đạo, tính thanh ghi ADF4159 — thuần thuật toán, không đụng Qt Widgets |
+| `net/` | Giao thức gói tin (`rawpacket`, `packetio`, `cmdproto`, `adfproto`, `filterproto`, `syncproto`), luồng nhận UDP, phía gửi |
+| `proc/` | Tách tâm chùm xung, bám quỹ đạo, tính thanh ghi ADF4159, đọc hệ số bộ lọc — thuần thuật toán, không đụng Qt Widgets |
 | `record/` | Ghi lưu và phát lại: định dạng `.rec`, luồng ghi đĩa, danh mục phiên |
 | `maps/` | Nền bản đồ số: tile, shapefile, chiếu toạ độ, tính phương vị / cự ly |
 | `ui/` | Các tab, cửa sổ con và phần vẽ |
@@ -52,9 +52,21 @@ tham số thì in ra bảng lệnh của kịch bản. Mặc định chạy ngo�
 `QT_QPA_PLATFORM=wayland` (hay `xcb`) nếu muốn xem tận mắt.
 
 Kịch bản mẫu nằm ở `tests/scripts/`. Lưu ý `bam-quy-dao.txt` có bấm **Áp dụng**
-trong cửa sổ tham số, còn `khoa-theo-trang-thai.txt` có vặn một ô trong tab *Điều
-khiển* — cả hai đều **ghi đè `build/params.json`**, sao lưu file đó trước nếu
-đang giữ một bộ tham số cần dùng.
+trong cửa sổ tham số, `khoa-theo-trang-thai.txt` có vặn một ô trong tab *Điều
+khiển*, còn `dong-bo-dieu-khien.txt` thì thêm hẳn hai dòng vào bảng cổng — cả ba
+đều **ghi đè `build/params.json`**, sao lưu file đó trước nếu đang giữ một bộ
+tham số cần dùng.
+
+Hai chỗ dễ vấp khi viết kịch bản mới:
+
+- `dump` đánh dấu `(ẩn)` cho widget đang khuất và `(khoá)` cho widget bị
+  `setEnabled(false)`. Bấm vào một nút đang khoá thì không có gì xảy ra, mà nhìn
+  kết quả kịch bản lại không phân biệt được với "bấm trượt" — nên nút nào chỉ mở
+  ở một trạng thái thì `dump` nó ra trước khi `click`.
+- Bảng dùng lệnh `cell <đích> <dòng> <cột> [giá trị]` chứ không dùng `table`:
+  bảng hệ số bộ lọc có 1024 dòng. `cell` đi qua đúng đường mà người dùng đi — ô
+  không cho sửa thì nó báo *(ô không cho sửa)*, và ô chứa hộp chọn (bảng cổng của
+  tab *Kết nối*) thì nó điều khiển chính hộp chọn ấy.
 
 ## File cấu hình
 
@@ -64,6 +76,7 @@ Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần 
 |---|---|---|
 | `settings.json` | Cấu hình hiển thị: nền bản đồ, tâm đài, cự ly tối đa, vòng cự ly, tốc độ mờ video, kích thước và màu các đối tượng đồ hoạ, danh sách phân loại mục tiêu | Trắc thủ |
 | `params.json` | Tham số kỹ thuật (Fs, B, Tc, Multi_V), bảng rẻ quạt xử lý, bảng vùng cấm khởi tạo, tham số hai thuật toán xử lý, giá trị các [lệnh điều khiển](#lệnh-điều-khiển), tham số [kit ADF4159](#điều-khiển-kit-tạo-tín-hiệu-adf4159), và danh sách cổng UDP | Người lắp đặt |
+| `filter/*.txt` | Hệ số bốn bộ lọc `FIR`, `WFC`, `STF`, `MTK` — xem [Điều khiển các bộ lọc](#điều-khiển-các-bộ-lọc). Thư mục tự tạo lúc chạy, **file thì phải tự copy vào** | Người lắp đặt |
 
 > File cấu hình hiển thị trước đây tên là `mx01.json`. Còn file cũ mà chưa có
 > `settings.json` thì phần mềm đọc file cũ rồi ghi sang tên mới ở lần lưu kế
@@ -72,7 +85,9 @@ Hai file, đều nằm **ngay cạnh file chạy** và đều sinh ra ở lần 
 Cả bộ (file chạy + hai file cấu hình + bản đồ) mang sang máy khác là chạy được ngay.
 
 Dữ liệu ghi lưu cũng nằm cạnh file chạy, trong thư mục `records/` — xem
-[Ghi lưu và phát lại](#ghi-lưu-và-phát-lại).
+[Ghi lưu và phát lại](#ghi-lưu-và-phát-lại). Hệ số bốn bộ lọc nằm trong thư mục
+`filter/`, cũng cạnh file chạy — xem
+[Điều khiển các bộ lọc](#điều-khiển-các-bộ-lọc).
 
 > Lúc phát triển, file chạy nằm trong `build/` nên cấu hình cũng ở đó và sẽ mất
 > khi xoá thư mục `build`. Không sao — thiếu file thì phần mềm dùng giá trị mặc định.
@@ -140,12 +155,20 @@ Tab **Kết nối** là tab mở sẵn khi chạy. Nó liệt kê các cổng UD
 mặc định có sẵn ba dòng `RAW_V` (6001), `RAW_P` (6002), `Status` (6003) trên
 `127.0.0.1`.
 
-Cột **Tên** là ComboBox với bốn loại dữ liệu — `RAW_V`, `RAW_P`, `Status`,
-`Plot` — nhưng vẫn gõ được tên khác. Dòng `Plot` (điểm dấu tâm chùm do hệ thống
-khác tính sẵn) **không** được tạo sẵn; bấm *Thêm dòng* là ra một dòng `Plot` ở
-cổng 6004. Gói `PlotTC` nhận trên dòng đó đi thẳng vào bộ bám quỹ đạo, bỏ qua
-thuật toán tách chùm xung — đây là đường dùng để
-[kiểm tra riêng bộ lọc Kalman](#công-cụ-tạo-giả-dữ-liệu).
+Cột **Tên** là ComboBox với năm loại dữ liệu — `RAW_V`, `RAW_P`, `Status`,
+`Plot`, `CtrlSync_R` — và **chỉ cho chọn, không gõ tay được**: hai dòng `Status`
+và `CtrlSync_R` được nhận diện theo tên, gõ sai một chữ là dòng ấy lặng lẽ thành
+một dòng thường (cổng vẫn mở, không lỗi gì, chỉ là không bao giờ dùng tới).
+
+Dòng `Plot` (điểm dấu tâm chùm do hệ thống khác tính sẵn) **không** được tạo
+sẵn; bấm *Thêm dòng* là ra một dòng `Plot` ở cổng 6004. Gói `PlotTC` nhận trên
+dòng đó đi thẳng vào bộ bám quỹ đạo, bỏ qua thuật toán tách chùm xung — đây là
+đường dùng để [kiểm tra riêng bộ lọc Kalman](#công-cụ-tạo-giả-dữ-liệu).
+
+Dòng `CtrlSync_R` cũng không được tạo sẵn — xem
+[Đồng bộ điều khiển nhiều máy](#đồng-bộ-điều-khiển-nhiều-máy). Đổi cột **Tên**
+của một dòng sang `CtrlSync_R` thì bốn ô còn lại tự điền theo (`LocalIP` lấy của
+dòng `Status`, `RemoteIP` `0.0.0.0`, cổng `9113` / `0`); vẫn sửa lại được.
 
 Hai chiều dữ liệu bật/tắt độc lập, mỗi nút nằm trong chính group của nó:
 
@@ -161,8 +184,9 @@ Cổng gửi chỉ thực sự mở khi nút chung đang bật **và** dòng đ�
   `0.0.0.0` là nghe trên mọi card.
 - `RemoteIP` để trống hoặc `0.0.0.0`, `RemotePort` để `0` → nhận từ **mọi máy /
   mọi cổng**. Đây là mặc định, vì bên gửi thường dùng cổng nguồn ngẫu nhiên.
-- Cột **Tên** chỉ là nhãn cho người đọc. Gói tin được phân loại theo header của
-  chính nó, nên đổi tên hay gộp cổng cũng không làm hỏng việc giải mã.
+- Cột **Tên** gần như chỉ là nhãn cho người đọc: gói tin được phân loại theo
+  header của chính nó, nên gộp hai loại vào một cổng cũng không làm hỏng việc
+  giải mã. Hai ngoại lệ là `Status` và `CtrlSync_R`, nhận diện **theo tên**.
 - Bảng cổng **nhận** chỉ sửa được lúc đã dừng kết nối. Bảng cổng **gửi** thì sửa
   được bất cứ lúc nào — xem [Gửi dữ liệu đi hệ thống khác](#gửi-dữ-liệu-đi-hệ-thống-khác).
 
@@ -582,8 +606,8 @@ dòng `Command` ở cổng 6103, đã tích ô *Gửi*.
 
 | Cột | Ý nghĩa |
 |---|---|
-| Gửi | Bật/tắt dòng đó. Dòng `Plot`/`Track` **luôn bắt đầu ở trạng thái tắt mỗi lần chạy** — mở phần mềm lên mà tự phát gói ra mạng là chuyện không ai muốn. Dòng `Command` thì giữ nguyên trạng thái đã lưu |
-| Loại dữ liệu | `Plot` (điểm dấu tâm chùm), `Track` (quỹ đạo) hoặc `Command` ([lệnh điều khiển](#lệnh-điều-khiển)) |
+| Gửi | Bật/tắt dòng đó. Dòng `Plot`/`Track` **luôn bắt đầu ở trạng thái tắt mỗi lần chạy** — mở phần mềm lên mà tự phát gói ra mạng là chuyện không ai muốn. Dòng `Command` và `CtrlSync_S` thì ô này tích sẵn và **bị khoá** |
+| Loại dữ liệu | `Plot` (điểm dấu tâm chùm), `Track` (quỹ đạo), `Command` ([lệnh điều khiển](#lệnh-điều-khiển), kể cả [ADF4159](#điều-khiển-kit-tạo-tín-hiệu-adf4159) và [bộ lọc](#điều-khiển-các-bộ-lọc)) hoặc `CtrlSync_S` ([chiếm quyền điều khiển](#đồng-bộ-điều-khiển-nhiều-máy)) |
 | LocalIP | Card mạng **đi ra**. Để trống là theo bảng định tuyến của hệ điều hành. Chú ý: khác hẳn ý nghĩa của cột cùng tên bên bảng nhận |
 | LocalPort | Để `0` là để hệ điều hành tự chọn cổng nguồn |
 | RemoteIP / RemotePort | Đích đến. Dòng đã bật *Gửi* thì hai ô này bắt buộc có giá trị |
@@ -597,9 +621,10 @@ Bảng này sửa được cả lúc đang kết nối (khác bảng cổng nh�
 lại socket ngay. Địa chỉ trong bảng cũng vào danh sách kiểm tra thông mạng ở
 góc trái thanh trạng thái.
 
-Dòng `Command` **không nằm dưới** nút *Bắt đầu / Dừng gửi dữ liệu*: nút đó là
-công tắc của dòng dữ liệu điểm dấu và quỹ đạo, còn lệnh điều khiển thì đi ra vì
-trắc thủ vừa vặn một nút chứ không phải vì có dòng dữ liệu nào đang chảy.
+Hai dòng `Command` và `CtrlSync_S` **không nằm dưới** nút *Bắt đầu / Dừng gửi dữ
+liệu*: nút đó là công tắc của dòng dữ liệu điểm dấu và quỹ đạo, còn lệnh điều
+khiển và gói chiếm quyền thì đi ra vì trắc thủ vừa bấm một nút chứ không phải vì
+có dòng dữ liệu nào đang chảy.
 
 Quỹ đạo bị xoá được gửi kèm `track_status = 6`, dù xoá bằng tay hay bằng thuật
 toán — hệ thống nhận không biết thì nó giữ quỹ đạo đó trên màn hình vĩnh viễn.
@@ -641,7 +666,12 @@ dòng chữ đỏ ở cuối tab.
 ### Khóa điều khiển
 
 Trên cùng của tab là **nút khóa**, ghim ở đó chứ không cuộn theo bốn group bên
-dưới. Chữ trên nút đổi cả nội dung lẫn màu, nhìn là biết đang ở trạng thái nào:
+dưới. Cạnh nó là nhãn `CtrlIP: ...` — máy tính nào trong hệ thống đang giữ quyền
+điều khiển, xem [Đồng bộ điều khiển nhiều máy](#đồng-bộ-điều-khiển-nhiều-máy).
+Hàng dưới là hai nút mở hai cửa sổ điều khiển riêng, *Điều khiển ADF4159* và
+*Điều khiển các bộ lọc*.
+
+Chữ trên nút khóa đổi cả nội dung lẫn màu, nhìn là biết đang ở trạng thái nào:
 
 | Nút ghi | Màu chữ | Đang ở trạng thái |
 |---|---|---|
@@ -654,9 +684,11 @@ chỗ ra lệnh. Vì giá trị trên ô luôn bằng giá trị trạng thái n
 vệt đỏ báo lệch nào.
 
 **Mở khóa** thì các ô nhận thao tác trở lại, và phần báo lệch dưới đây có hiệu
-lực. Lúc **khóa lại**, các ô lập tức nhảy về giá trị của gói trạng thái gần nhất
-— không phải chờ gói kế tiếp — và cửa sổ *Điều khiển ADF4159* nếu đang mở thì
-được đóng lại, vì đó cũng là một đường ra lệnh cho đài.
+lực. Mỗi lần chuyển từ khóa sang mở khóa, một gói `CTRL_SYNC` được **quảng bá**
+để các máy khác tự khóa lại. Lúc **khóa lại**, các ô lập tức nhảy về giá trị của
+gói trạng thái gần nhất — không phải chờ gói kế tiếp — và hai cửa sổ *Điều khiển
+ADF4159* / *Điều khiển các bộ lọc* nếu đang mở thì được đóng lại, vì đó cũng là
+những đường ra lệnh cho đài.
 
 Giá trị nhận theo kiểu ấy cũng được ghi xuống `params.json` như giá trị vặn tay,
 và cũng đi vào phép tính `Video[1024]` — nên `ZFbeat` / `GainU` / `DataSend` dùng
@@ -701,13 +733,15 @@ về một cổng cố định, để thử nhánh ô tự động đang tắt. 
 khác lệnh ở vài trường để thấy phần báo lệch bằng chữ đỏ; bỏ nó đi thì đài "nghe
 lời" và mọi thứ sạch.
 `AT_Azm` / `Beta_Back` trả về một phương vị quay đều 6 vòng/phút. Công cụ này trả
-lời cả hai gói của kit ADF4159 dưới đây.
+lời cả hai gói của [kit ADF4159](#điều-khiển-kit-tạo-tín-hiệu-adf4159) lẫn bốn
+gói [nạp bộ lọc](#điều-khiển-các-bộ-lọc) dưới đây — tất cả đều đi chung dòng
+`Command`.
 
 ## Điều khiển kit tạo tín hiệu ADF4159
 
-Nút **Điều khiển ADF4159** ghim ngay dưới nút khóa ở đầu tab *Điều khiển* — nó
-chỉ **enable khi đã mở khóa điều khiển**, xem [Khóa điều
-khiển](#khóa-điều-khiển). Nút mở một cửa sổ riêng: dựng lại
+Nút **Điều khiển ADF4159** ghim ngay dưới nút khóa ở đầu tab *Điều khiển*, cạnh
+nút *Điều khiển các bộ lọc* — nó chỉ **enable khi đã mở khóa điều khiển**, xem
+[Khóa điều khiển](#khóa-điều-khiển). Nút mở một cửa sổ riêng: dựng lại
 phần mềm gốc của Analog Devices (*ADF4158/9 PLL Software*) theo gam màu tối của
 phần mềm này, và thay đường USB của nó bằng hai gói lệnh UDP.
 
@@ -800,6 +834,171 @@ Kịch bản mở cửa sổ, đặt một nhánh quét theo đúng ví dụ FMC
 (`DEV = 20972`, `DEVoff = 4`, 200 bước, `CLK1 = 250`) rồi chụp lại ba ảnh vào
 `/tmp`. Muốn thấy cả chiều trạng thái trả về thì chạy `tools/fake_control.py`
 song song và bấm **Bắt đầu nhận dữ liệu** ở tab *Kết nối* trước.
+
+## Điều khiển các bộ lọc
+
+Nút **Điều khiển các bộ lọc** (cạnh nút *Điều khiển ADF4159*, cũng chỉ enable khi
+đã [mở khóa điều khiển](#khóa-điều-khiển)) mở một cửa sổ nạp hệ số bốn bộ lọc
+xuống khối DSP của đài.
+
+| Gói tin | Header | Category lệnh / trạng thái | Mang gì | File dữ liệu | Số dòng file |
+|---|---|---|---|---|---|
+| `FILTER_FIR` | `0xD5D4D3D2` | `0x8019` / `0x80190` | `Filter[33]` | `filter/FIR.txt` | 33 |
+| `FILTER_WFC` | `0xD6D5D4D3` | `0x8021` / `0x80210` | `Filter[1024]` | `filter/WFC.txt` | 2048 |
+| `FILTER_STF` | `0xD7D6D5D4` | `0x8022` / `0x80220` | `Filter[512]` | `filter/STF.txt` | 1024 |
+| `FILTER_MTK` | `0xD8D7D6D5` | `0x9019` / `0x90190` | `Filter[16]` | `filter/MTK.txt` | 32 |
+
+Lệnh đi ra chính các dòng **`Command`** của bảng cổng gửi và trạng thái về theo
+đúng đường của bốn gói lệnh kia ([Cổng nhận Status](#cổng-nhận-status)) — bộ lọc
+nằm trong cùng khối DSP, không phải cấu hình thêm gì.
+
+### File hệ số
+
+Thư mục **`filter/`** nằm cạnh file chạy và được **tự tạo lúc phần mềm khởi
+động**; bốn file bên trong thì **người lắp đặt phải tự copy vào**. Mỗi file là
+văn bản thuần, **mỗi dòng một số hex** (viết `1A2B` hay `0x1A2B` đều được, thừa
+khoảng trắng hai đầu cũng được).
+
+Chỉ `FILTER_FIR` lấy mỗi dòng thành một phần tử. Ba bộ còn lại **ghép hai dòng
+thành một phần tử**, dòng trước làm nửa cao:
+
+```
+Filter[0] = ((dòng_1 & 0xffff) << 16) + dòng_2
+```
+
+Vì vậy `WFC.txt` phải có 2048 dòng cho 1024 phần tử, `STF.txt` 1024 dòng cho 512,
+`MTK.txt` 32 dòng cho 16.
+
+Các dòng **sau** số dòng cần thiết thì không đọc tới, nên không phải là lỗi — bốn
+file mẫu đều có một dòng chú thích ở cuối (`hamming`, `kaiser 0.5`, `tukeywin
+0.5`...). Hai lỗi thật thì hiện chữ đỏ ở cuối cửa sổ và **khoá nút *Gửi lệnh***:
+
+| Lỗi | Khi nào |
+|---|---|
+| *thiếu file dữ liệu bộ lọc: ...* | không mở được file |
+| *lỗi đọc dữ liệu bộ lọc X: chỉ có N dòng, cần M dòng* | file ngắn hơn số dòng cần |
+| *lỗi đọc dữ liệu bộ lọc X: dòng N không phải số hex* | một dòng trong vùng cần đọc không đọc ra số |
+
+Nút *Gửi lệnh* bị khoá khi còn **bất kỳ** lỗi nào trong bốn file: bốn bộ lọc là
+một bộ, gửi ba bộ đúng với một bộ toàn số 0 thì đài chạy với một bộ lọc chắp vá.
+
+Bốn file được **đọc lại mỗi lần mở cửa sổ**, nên sửa file rồi mở lại là thấy giá
+trị mới — không phải khởi động lại phần mềm.
+
+### Bảng 1024 dòng
+
+Bảng cố định **1024 dòng × 9 cột**: cột `STT` (1..1024), rồi mỗi bộ lọc hai cột.
+
+| Cột | Sửa được | Chứa gì |
+|---|---|---|
+| `FIR (S-3)` | có | giá trị **gửi đi**, dạng `0x00000000`; `3` là Serial của gói lệnh gửi thành công gần nhất |
+| `FIR (R-3)` | không | giá trị **đài trả về**; `3` là Serial của gói phản hồi |
+
+Chữ cột `S` sáng, chữ cột `R` xanh — nhìn là biết đang đọc chiều nào. Dòng nào
+của cột `R` **khác** giá trị đã gửi thì đổi sang **chữ đỏ**; chưa nhận được gói
+phản hồi thì cột `R` là `0x00000000`. Bộ lọc ít hơn 1024 phần tử thì các dòng
+dưới của hai cột ấy **để trắng** và không sửa được. Nền hai dòng chẵn lẻ chênh
+nhau một chút cho dễ lần theo hàng ngang.
+
+Phần báo lệch so với **giá trị của lần gửi gần nhất**, không phải với ô đang hiện
+trên màn hình: sửa một ô sau khi đã gửi thì đài vẫn đang dùng giá trị cũ.
+
+Sửa một ô thì gõ số hex, có hay không có `0x` đều được; ô hiện lại thành
+`0x00000000` cho đồng dạng. Gõ sai thì ô quay về giá trị cũ và dòng cuối cửa sổ
+nói rõ dòng nào cột nào.
+
+### Nút Gửi lệnh
+
+Gửi **bốn gói** `FILTER_FIR` → `FILTER_WFC` → `FILTER_STF` → `FILTER_MTK`,
+**cách nhau 100 ms**. Chuỗi đã bắt đầu thì chạy cho hết, kể cả khi cửa sổ vừa bị
+đóng — dừng giữa chừng để đài chạy với hai bộ mới và hai bộ cũ còn tệ hơn.
+
+> Giá trị hệ số **không** lưu vào `params.json`. Nguồn duy nhất là bốn file trong
+> `filter/`, còn các ô sửa tay trên bảng chỉ sống tới lúc đóng cửa sổ — đó cũng là
+> lý do cửa sổ đọc lại đĩa mỗi lần mở.
+
+### Kiểm tra cửa sổ bộ lọc
+
+```bash
+cp docs-local/filter/*.txt build/filter/
+```
+
+```bash
+python3 tools/fake_control.py --disobey
+```
+
+```bash
+cd build && ./ar0101-guidrv ../tests/scripts/bo-loc.txt
+```
+
+Kịch bản mở khóa điều khiển, mở cửa sổ, sửa một ô, bấm *Gửi lệnh* rồi đọc lại vài
+ô cột `R`. Có `--disobey` thì dòng 1 của cả bốn bộ lệch đúng một đơn vị và hiện
+chữ đỏ. Cuối kịch bản khóa điều khiển lại để thấy cửa sổ tự đóng.
+
+## Đồng bộ điều khiển nhiều máy
+
+Trong hệ thống có nhiều máy tính chạy phần mềm này, nhưng **tại một thời điểm chỉ
+một máy được ra lệnh cho đài** — hai người cùng vặn một tham số thì không ai biết
+đài đang nghe ai. Máy nào bấm *Mở khóa điều khiển* thì quảng bá một gói
+`CTRL_SYNC`, và mọi máy khác nghe được sẽ **tự khóa lại**, chỉ còn theo dõi.
+
+| Gói tin | Header | Category | Mang gì |
+|---|---|---|---|
+| `CTRL_SYNC` | `0xCAFE9113` | `0x9113` | `CtrlIP` — địa chỉ máy đang chiếm quyền |
+
+`CtrlIP` là địa chỉ IPv4 dạng số với byte đầu của địa chỉ ở byte cao
+(`192.168.11.22` → `0xC0A80B16`), nên dump gói ra hex là đọc được luôn.
+
+### Hai dòng phải khai trong tab Kết nối
+
+Cả hai đều **không** được tạo sẵn. Chọn đúng loại trong ComboBox thì các ô còn
+lại tự điền, và vẫn sửa lại được.
+
+| Bảng | Loại | Điền sẵn |
+|---|---|---|
+| Cổng UDP **nhận** | `CtrlSync_R` | `LocalIP` = của dòng `Status` (hoặc `127.0.0.1`), `RemoteIP` `0.0.0.0`, `LocalPort` `9113`, `RemotePort` `0` |
+| Cổng UDP **gửi** | `CtrlSync_S` | *Gửi* tích sẵn và khoá, `LocalIP` = của dòng `Status`, `RemoteIP` = địa chỉ quảng bá của dải đó, `LocalPort` `0`, `RemotePort` `9113`, *Broadcast* tích sẵn |
+
+Dòng `CtrlSync_S` **luôn gửi**, không phụ thuộc nút *Bắt đầu gửi dữ liệu* — y như
+dòng `Command`. Dòng `CtrlSync_R` thì là một cổng nhận bình thường: phải bấm
+*Bắt đầu nhận dữ liệu* nó mới mở.
+
+### Nhãn CtrlIP
+
+Cạnh nút khóa ở đầu tab *Điều khiển*:
+
+| Nhãn | Nghĩa |
+|---|---|
+| `CtrlIP: -` | chưa máy nào chiếm quyền kể từ lúc chạy |
+| `CtrlIP: 192.168.11.22 (local)` | **chính máy này** đang điều khiển |
+| `CtrlIP: 192.168.11.30` | máy khác đang điều khiển; máy này đã khóa |
+
+Gói quảng bá của chính máy mình cũng về đúng cổng `CtrlSync_R` của nó — cùng cổng,
+cùng dải quảng bá. Phân biệt bằng cách so trường `CtrlIP` với `LocalIP` của dòng
+`CtrlSync_R`: trùng thì bỏ qua, vì nhãn và trạng thái khóa đã xử lý ngay lúc bấm
+nút. Nghĩa là **`LocalIP` của dòng `CtrlSync_R` phải đúng địa chỉ máy mình** —
+để nhầm sang địa chỉ máy khác thì máy này tự khóa mình mỗi lần vừa mở khóa.
+
+Trạng thái khóa **không** được ghi nhớ giữa các lần chạy: mở phần mềm lên bao giờ
+cũng là đang khóa, và nhãn `CtrlIP` về lại `-`.
+
+### Kiểm tra đồng bộ điều khiển
+
+```bash
+rm -f build/params.json && cd build && ./ar0101-guidrv ../tests/scripts/dong-bo-dieu-khien.txt
+```
+
+Kịch bản tự thêm hai dòng `CtrlSync_R` / `CtrlSync_S` rồi in ra các ô được điền
+sẵn, bấm *Bắt đầu nhận dữ liệu*, mở khóa điều khiển và đọc nhãn `CtrlIP`. Ở đoạn
+`wait` cuối (8 giây), chạy ở cửa sổ lệnh khác:
+
+```bash
+python3 tools/fake_ctrlsync.py --ctrl-ip 192.168.11.30
+```
+
+Công cụ đóng vai một máy tính khác chiếm quyền: nhãn phải đổi sang
+`CtrlIP: 192.168.11.30` (không còn chữ `local`) và nút quay về *Mở khóa điều
+khiển*. Thêm `--listen` thì nó chỉ nghe và in ra các gói phần mềm quảng bá.
 
 ## Ghi lưu và phát lại
 

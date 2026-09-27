@@ -83,8 +83,8 @@ ControlTab::ControlTab(QWidget *parent)
     : QWidget(parent)
 {
     // Tab chia làm hai phần: phần đầu ghim cứng, phần thân cuộn được. Bốn group
-    // lệnh cao hơn panel nhiều lần, mà hai nút dưới đây thì phải với tới được
-    // bất kể đang cuộn tới đâu.
+    // lệnh cao hơn panel nhiều lần, mà ba nút dưới đây thì phải với tới được bất
+    // kể đang cuộn tới đâu.
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
@@ -94,19 +94,55 @@ ControlTab::ControlTab(QWidget *parent)
     headLay->setContentsMargins(12, 12, 12, 8);
     headLay->setSpacing(6);
 
+    // Hàng trên: nút khóa và nhãn CtrlIP. Nút không còn chiếm cả bề ngang như
+    // trước — nhãn phải nằm **cùng hàng** với nó, vì hai thứ nói về cùng một
+    // việc: ai đang được ra lệnh cho đài.
     m_lockBtn = new QPushButton(head);
+    // Chữ trên nút đổi theo trạng thái nên kịch bản kiểm thử không chỉ đích theo
+    // chữ được — nó còn phải đọc chính cái chữ ấy.
+    m_lockBtn->setObjectName(QStringLiteral("lockButton"));
     connect(m_lockBtn, &QPushButton::clicked, this,
             [this] { setLocked(!m_locked); });
-    headLay->addWidget(m_lockBtn);
 
-    // Kit tạo tín hiệu ADF4159 không nằm trong bốn gói lệnh dưới: nó có bộ
-    // thanh ghi riêng, nhiều tới mức phải một cửa sổ riêng mới đủ chỗ. Nút của
-    // nó ghim cạnh nút khóa vì nó cũng là một đường ra lệnh cho đài — khóa
-    // điều khiển thì khóa cả đường đó.
+    m_ctrlIp = new QLabel(head);
+    m_ctrlIp->setObjectName(QStringLiteral("ctrlIpLabel"));
+    setCtrlIpText(QString(), false);
+
+    auto *lockRow = new QHBoxLayout;
+    lockRow->setContentsMargins(0, 0, 0, 0);
+    lockRow->setSpacing(8);
+    lockRow->addWidget(m_lockBtn, 1);
+    lockRow->addWidget(m_ctrlIp, 1);
+    headLay->addLayout(lockRow);
+
+    // Hàng dưới: hai cửa sổ điều khiển riêng, mỗi cửa sổ một nửa bề ngang.
+    //
+    // Kit tạo tín hiệu ADF4159 không nằm trong bốn gói lệnh dưới (nó có bộ thanh
+    // ghi riêng, nhiều tới mức phải một cửa sổ riêng mới đủ chỗ), bộ lọc cũng
+    // vậy (1024 hệ số đọc từ file, không phải thứ vặn trên tab). Nút của cả hai
+    // ghim cạnh nút khóa vì chúng cũng là đường ra lệnh cho đài — khóa điều
+    // khiển thì khóa cả hai đường đó.
     m_adfBtn = new QPushButton(tr("Điều khiển ADF4159"), head);
     m_adfBtn->setToolTip(tr("Mở cửa sổ điều khiển kit tạo tín hiệu ADF4159"));
     connect(m_adfBtn, &QPushButton::clicked, this, &ControlTab::adf4159Requested);
-    headLay->addWidget(m_adfBtn);
+
+    m_filterBtn = new QPushButton(tr("Điều khiển các bộ lọc"), head);
+    m_filterBtn->setObjectName(QStringLiteral("filterButton"));
+    m_filterBtn->setToolTip(tr("Mở cửa sổ nạp hệ số bốn bộ lọc FIR / WFC / STF / "
+                               "MTK xuống đài"));
+    connect(m_filterBtn, &QPushButton::clicked, this, &ControlTab::filterRequested);
+
+    auto *winRow = new QHBoxLayout;
+    winRow->setContentsMargins(0, 0, 0, 0);
+    winRow->setSpacing(8);
+    // Hệ số giãn bằng nhau **và** bỏ bề rộng tối thiểu theo chữ: chữ trên hai nút
+    // dài khác nhau, để mặc định thì nút nào chữ dài hơn cũng rộng hơn — mà mô tả
+    // giai đoạn yêu cầu hai nút đúng cùng kích thước.
+    m_adfBtn->setMinimumWidth(0);
+    m_filterBtn->setMinimumWidth(0);
+    winRow->addWidget(m_adfBtn, 1);
+    winRow->addWidget(m_filterBtn, 1);
+    headLay->addLayout(winRow);
 
     root->addWidget(head, 0);
 
@@ -317,8 +353,25 @@ bool ControlTab::adoptStatus(int group)
     return changed;
 }
 
+void ControlTab::setCtrlIpText(const QString &text, bool isLocal)
+{
+    const QString ip = text.trimmed().isEmpty() ? QStringLiteral("-")
+                                                : text.trimmed();
+    m_ctrlIp->setText(isLocal ? tr("CtrlIP: %1 (local)").arg(ip)
+                              : tr("CtrlIP: %1").arg(ip));
+    // Chính máy mình đang điều khiển thì nhãn mang đúng màu của nút lúc mở khóa
+    // — hai thứ nói cùng một điều, để cùng màu thì nhìn một chỗ là đủ.
+    m_ctrlIp->setStyleSheet(isLocal ? kUnlockedStyle : kInfoStyle);
+    m_ctrlIp->setToolTip(
+        tr("Máy tính đang giữ quyền điều khiển, theo trường CtrlIP của gói "
+           "CTRL_SYNC gần nhất.\n"
+           "Có chữ \"(local)\" là chính máy này; địa chỉ khác là một máy khác "
+           "vừa chiếm quyền, và máy này đã tự khóa điều khiển lại."));
+}
+
 void ControlTab::setLocked(bool locked)
 {
+    const bool changed = m_locked != locked;
     m_locked = locked;
 
     m_lockBtn->setText(locked ? tr("Mở khóa điều khiển") : tr("Khóa điều khiển"));
@@ -327,12 +380,15 @@ void ControlTab::setLocked(bool locked)
         locked ? tr("Đang khóa: các ô dưới đây chỉ hiện giá trị đài báo về, "
                     "không nhận thao tác nào.\n"
                     "Bấm để mở khóa — từ lúc đó mỗi lần đổi một ô là một lệnh "
-                    "thật đi ra đài.")
+                    "thật đi ra đài, và một gói CTRL_SYNC được quảng bá để các "
+                    "máy khác tự khóa lại.")
                : tr("Đang mở khóa: mỗi lần đổi một ô là một lệnh thật đi ra "
                     "đài.\n"
                     "Bấm để khóa lại — các ô quay về hiện đúng giá trị đài báo "
-                    "về, và cửa sổ \"Điều khiển ADF4159\" bị đóng."));
+                    "về, và hai cửa sổ \"Điều khiển ADF4159\" / \"Điều khiển "
+                    "các bộ lọc\" bị đóng."));
     m_adfBtn->setEnabled(!locked);
+    m_filterBtn->setEnabled(!locked);
 
     bool adopted = false;
     for (int g = 0; g < cmdproto::GroupCount; ++g) {
@@ -362,7 +418,10 @@ void ControlTab::setLocked(bool locked)
 
     if (adopted)
         emit valuesChanged();
-    emit lockChanged(locked);
+    // Chỉ phát khi trạng thái thật sự đổi — xem chú thích ở khai báo tín hiệu:
+    // nơi nhận gửi một gói CTRL_SYNC theo nó.
+    if (changed)
+        emit lockChanged(locked);
 }
 
 void ControlTab::sendGroup(int group)

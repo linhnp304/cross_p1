@@ -33,6 +33,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabBar>
+#include <QTableWidget>
 #include <QTabWidget>
 #include <QTest>
 #include <QTextStream>
@@ -66,6 +67,7 @@ void help()
   type <đích> <chuỗi>       gõ chuỗi vào widget
   text <đích>               in ra chữ hiện có của widget
   table <đích>              in ra nội dung một bảng
+  cell <đích> <d> <c> [gt]  đọc ô (dòng d, cột c) của bảng; có <gt> thì đặt giá trị
   quit                      thoát sớm
 
 Cách chỉ đích (đều ưu tiên widget đang nhìn thấy được):
@@ -169,17 +171,22 @@ QWidget *resolve(const QString &sel)
 /// Tab "Điều khiển" gói mỗi ô nhập trong một QWidget rỗng cùng với cái nhãn đỏ
 /// báo lệch trạng thái, nên thứ nằm ở ô "field" của QFormLayout là cái bọc chứ
 /// không phải ô nhập. Lần xuống một tầng thì kịch bản vẫn viết theo nhãn được.
+bool isInput(const QWidget *w)
+{
+    return qobject_cast<const QAbstractSpinBox *>(w)
+        || qobject_cast<const QComboBox *>(w)
+        || qobject_cast<const QAbstractButton *>(w)
+        || qobject_cast<const QLineEdit *>(w)
+        || qobject_cast<const QSlider *>(w);
+}
+
 QWidget *inputInside(QWidget *w)
 {
-    if (!w || qobject_cast<QAbstractSpinBox *>(w) || qobject_cast<QComboBox *>(w)
-        || qobject_cast<QAbstractButton *>(w) || qobject_cast<QLineEdit *>(w)
-        || qobject_cast<QSlider *>(w))
+    if (!w || isInput(w))
         return w;
 
     for (QWidget *c : w->findChildren<QWidget *>()) {
-        if (qobject_cast<QAbstractSpinBox *>(c) || qobject_cast<QComboBox *>(c)
-            || qobject_cast<QLineEdit *>(c) || qobject_cast<QSlider *>(c)
-            || qobject_cast<QAbstractButton *>(c))
+        if (isInput(c))
             return c;
     }
     return w;
@@ -205,6 +212,15 @@ QWidget *fieldFor(QWidget *w)
     if (!lay)
         return w;
 
+    // Chỉ nhận kết quả khi thứ tìm được **thật sự là ô nhập**. Không có điều
+    // kiện này thì chỉ vào một nhãn bình thường (dòng lỗi, dòng trạng thái) là
+    // lệnh text/set nhảy sang cái nhãn đứng kế bên nó trong cùng bố cục — chạy
+    // êm ru mà đọc nhầm chỗ.
+    const auto accept = [w](QWidget *f) {
+        QWidget *inner = inputInside(f);
+        return isInput(inner) ? inner : w;
+    };
+
     if (auto *form = qobject_cast<QFormLayout *>(lay)) {
         int row = -1;
         QFormLayout::ItemRole role = QFormLayout::LabelRole;
@@ -212,7 +228,7 @@ QWidget *fieldFor(QWidget *w)
         if (row >= 0) {
             if (QLayoutItem *it = form->itemAt(row, QFormLayout::FieldRole)) {
                 if (QWidget *f = it->widget())
-                    return inputInside(f);
+                    return accept(f);
             }
         }
         return w;
@@ -222,7 +238,7 @@ QWidget *fieldFor(QWidget *w)
         if (lay->itemAt(i)->widget() != label)
             continue;
         if (QWidget *f = lay->itemAt(i + 1)->widget())
-            return inputInside(f);
+            return accept(f);
     }
     return w;
 }
@@ -268,10 +284,15 @@ void doDump(const QString &sel, bool all)
         if (!useful)
             continue;
 
-        out() << QStringLiteral("@%1 %2%3 %4 [%5x%6]")
+        // "(khoá)" là setEnabled(false): nhiều nút trong phần mềm chỉ mở ở đúng
+        // một trạng thái (nút mở cửa sổ điều khiển khi đã mở khoá, nút "Thoát
+        // phần mềm" khi đã tắt hết), mà bấm vào nút đang khoá thì không có gì
+        // xảy ra — nhìn kết quả kịch bản không phân biệt được với "bấm trượt".
+        out() << QStringLiteral("@%1 %2%3%4 %5 [%6x%7]")
                      .arg(i, -4)
                      .arg(QString::fromUtf8(w->metaObject()->className()), -20)
                      .arg(w->isVisible() ? QString() : QStringLiteral(" (ẩn)"))
+                     .arg(w->isEnabled() ? QString() : QStringLiteral(" (khoá)"))
                      .arg(w->objectName().isEmpty()
                               ? QString()
                               : QStringLiteral("#") + w->objectName())
@@ -335,6 +356,66 @@ void doSet(QWidget *w, const QString &value)
         out() << "  (không đặt được giá trị cho "
               << w->metaObject()->className() << ")\n";
     }
+}
+
+/// Đọc, hoặc đặt, một ô của bảng. Bảng có hàng nghìn dòng (cửa sổ bộ lọc có
+/// 1024) nên lệnh `table` in ra cả bảng là không dùng được — mà kịch bản thì
+/// thường chỉ cần soi đúng một ô.
+///
+/// Đặt giá trị đi qua model chứ không qua ô nhập tạm của QTableWidget: kết quả
+/// giống hệt (cùng phát dataChanged / itemChanged), mà không phải dàn cảnh bấm
+/// đúp rồi gõ rồi Enter.
+void doCell(QWidget *w, int row, int col, const QString &value, bool set)
+{
+    auto *view = qobject_cast<QAbstractItemView *>(w);
+    QAbstractItemModel *m = view ? view->model() : nullptr;
+    if (!m) {
+        out() << "  (không phải bảng)\n";
+        return;
+    }
+    if (row < 0 || row >= m->rowCount() || col < 0 || col >= m->columnCount()) {
+        out() << "  (ngoài bảng: " << m->rowCount() << " dòng, "
+              << m->columnCount() << " cột)\n";
+        return;
+    }
+
+    // Ô có widget riêng (hộp chọn trong bảng cổng của tab "Kết nối") thì thứ
+    // người dùng đụng vào là widget ấy, không phải dữ liệu của model — mà đặt
+    // vào model cũng không làm hộp chọn đổi theo.
+    if (auto *table = qobject_cast<QTableWidget *>(view)) {
+        if (QWidget *inner = table->cellWidget(row, col)) {
+            inner = inputInside(inner);
+            auto *box = qobject_cast<QAbstractButton *>(inner);
+            const bool tick = box && box->isCheckable();
+            if (set) {
+                // Ô đánh dấu trong bảng không có chữ nên doSet() không nhận ra;
+                // nhận "on"/"off" ngay tại đây, cùng chữ với lệnh check.
+                if (tick)
+                    box->setChecked(value == QLatin1String("on"));
+                else
+                    doSet(inner, value);
+            }
+            if (tick) {
+                out() << "  " << (box->isChecked() ? "on" : "off")
+                      << (box->isEnabled() ? "" : " (khoá)") << '\n';
+            } else {
+                out() << "  \"" << widgetText(inner) << "\"\n";
+            }
+            return;
+        }
+    }
+
+    const QModelIndex at = m->index(row, col);
+    // Xét cờ ItemIsEditable trước: model của QTableWidget nhận setData cho **mọi**
+    // ô, kể cả ô mà giao diện không cho sửa — đi cửa đó là kịch bản làm được việc
+    // người dùng không làm được, tức là thử sai thứ.
+    if (set) {
+        if (!(m->flags(at) & Qt::ItemIsEditable))
+            out() << "  (ô không cho sửa)\n";
+        else if (!m->setData(at, value, Qt::EditRole))
+            out() << "  (ô không nhận giá trị)\n";
+    }
+    out() << "  \"" << at.data().toString() << "\"\n";
 }
 
 /// Tách một dòng lệnh thành các từ, giữ nguyên phần trong ngoặc kép.
@@ -512,6 +593,10 @@ int main(int argc, char *argv[])
             out() << "  \"" << widgetText(fieldFor(t)) << "\"\n";
         } else if (cmd == QLatin1String("table")) {
             doTable(t);
+        } else if (cmd == QLatin1String("cell")) {
+            doCell(t, a.value(2).toInt(), a.value(3).toInt(), a.value(4),
+                   a.size() > 4);
+            QTest::qWait(200);
         } else {
             out() << "  (lệnh lạ)\n";
         }

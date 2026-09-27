@@ -11,9 +11,10 @@
 
 /// Loại dữ liệu của một dòng trong bảng cổng gửi.
 enum class TxKind {
-    Plot,     ///< điểm dấu tâm chùm (PlotTC)
-    Track,    ///< quỹ đạo
-    Command,  ///< lệnh điều khiển đài (tab "Điều khiển")
+    Plot,      ///< điểm dấu tâm chùm (PlotTC)
+    Track,     ///< quỹ đạo
+    Command,   ///< lệnh điều khiển đài (tab "Điều khiển", ADF4159, bộ lọc)
+    CtrlSync,  ///< gói chiếm quyền điều khiển CTRL_SYNC, quảng bá tới các máy khác
 };
 
 /// Một điểm kết nối UDP trong bảng "Kết nối".
@@ -35,15 +36,26 @@ struct NetEndpoint {
     /// thái không gửi, để mở phần mềm lên là không tự phát dòng dữ liệu nào ra
     /// mạng.
     ///
-    /// Dòng Command thì ngược lại — **luôn bật**, và ô đánh dấu của nó bị khoá
-    /// trên giao diện. Có dòng Command trong bảng nghĩa là đã khai đường gửi
-    /// lệnh, không có trạng thái nào ở giữa: lệnh chỉ đi ra khi trắc thủ tự tay
-    /// vặn một nút chứ không chảy liên tục, nên không có gì phải đề phòng.
+    /// Dòng Command và dòng CtrlSync thì ngược lại — **luôn bật**, và ô đánh dấu
+    /// của chúng bị khoá trên giao diện. Có dòng Command trong bảng nghĩa là đã
+    /// khai đường gửi lệnh, không có trạng thái nào ở giữa: lệnh chỉ đi ra khi
+    /// trắc thủ tự tay vặn một nút chứ không chảy liên tục, nên không có gì phải
+    /// đề phòng. CtrlSync cũng vậy: một gói cho mỗi lần bấm "Mở khóa điều khiển".
     bool   enabled = false;
     TxKind kind    = TxKind::Plot;
 
     /// Dòng này có được mở socket không.
-    bool sends() const { return enabled || kind == TxKind::Command; }
+    bool sends() const { return enabled || alwaysSends(kind); }
+
+    /// Loại dữ liệu không phụ thuộc ô "Gửi" lẫn nút "Bắt đầu gửi dữ liệu".
+    /// Nhận thẳng loại chứ không phải hàm thành viên: giao diện phải trả lời câu
+    /// này cho **loại vừa được chọn trong hộp chọn**, tức là trước khi có dòng
+    /// nào mang loại ấy.
+    static bool alwaysSends(TxKind k)
+    {
+        return k == TxKind::Command || k == TxKind::CtrlSync;
+    }
+    bool alwaysSends() const { return alwaysSends(kind); }
 
     /// Gửi tới địa chỉ quảng bá của dải chứa RemoteIP thay vì gửi đơn hướng.
     bool   broadcast = false;
@@ -153,25 +165,52 @@ struct AppParams {
     /// không có nó thì cú vặn nút đầu tiên trong tab "Điều khiển" chẳng đi tới đâu.
     static QVector<NetEndpoint> defaultTx();
 
-    /// Nhãn ba loại dữ liệu của cột "Loại dữ liệu", đúng thứ tự trong ComboBox.
+    /// Nhãn các loại dữ liệu của cột "Loại dữ liệu", đúng thứ tự trong ComboBox.
     static QStringList txKindNames();
 
-    /// Bốn loại dữ liệu của cột "Tên" trong bảng cổng nhận, đúng thứ tự hiện
-    /// trong ComboBox. Chỉ là gợi ý cho người dùng: việc giải mã phân loại theo
-    /// nội dung gói chứ không theo tên, nên gõ tên khác vẫn chạy bình thường.
+    /// Các loại dữ liệu của cột "Tên" trong bảng cổng nhận, đúng thứ tự hiện
+    /// trong ComboBox. Cột đó **chỉ cho chọn, không cho gõ tay**: hai dòng
+    /// "Status" và "CtrlSync_R" được nhận diện theo tên (xem isStatusRow() và
+    /// isCtrlSyncRow()), mà gõ sai một chữ thì dòng ấy lặng lẽ thành một dòng
+    /// bình thường.
     static QStringList rxNames();
 
     /// Tên của dòng "Status" trong bảng cổng nhận.
     static QString statusRowName();
 
+    /// Tên của dòng "Plot" — dòng mà nút "Thêm dòng" tạo ra.
+    static QString plotRowName();
+
+    /// Tên của dòng nhận gói chiếm quyền điều khiển CTRL_SYNC.
+    static QString ctrlSyncRowName();
+
     /// Dòng này có phải dòng "Status" không — chỗ **duy nhất** nhận diện nó, để
     /// giao diện và phần mở cổng không bao giờ hiểu khác nhau. Đây cũng là ngoại
-    /// lệ duy nhất của nguyên tắc "tên chỉ là nhãn": statusFollowsCommand phải
-    /// biết bỏ qua đúng một dòng nào đó, mà tên là thứ duy nhất chỉ ra được.
+    /// lệ của nguyên tắc "tên chỉ là nhãn": statusFollowsCommand phải biết bỏ
+    /// qua đúng một dòng nào đó, mà tên là thứ duy nhất chỉ ra được.
     static bool isStatusRow(const NetEndpoint &e);
+
+    /// Tương tự cho dòng "CtrlSync_R": phần xử lý gói CTRL_SYNC phải biết LocalIP
+    /// của dòng ấy để nhận ra gói do chính máy mình quảng bá đi.
+    static bool isCtrlSyncName(const QString &name);
+    static bool isCtrlSyncRow(const NetEndpoint &e);
+
+    /// LocalIP của dòng "Status" trong bảng cổng nhận, hoặc 127.0.0.1 nếu chưa
+    /// có dòng nào. Là giá trị điền sẵn cho dòng "CtrlSync_R" / "CtrlSync_S" —
+    /// đồng bộ điều khiển đi cùng card mạng với đường trạng thái của đài.
+    QString statusLocalIp() const;
+
+    /// LocalIP của dòng "CtrlSync_R" (bảng nhận), rỗng nếu không có dòng nào.
+    QString ctrlSyncLocalIp() const;
+
+    /// LocalIP của dòng "CtrlSync_S" (bảng gửi), rỗng nếu không có dòng nào.
+    QString ctrlSyncTxLocalIp() const;
 
     /// Cổng nhận mặc định của loại dữ liệu chưa được tạo sẵn (Plot).
     static constexpr quint16 kDefaultPlotPort = 6004;
+
+    /// Địa chỉ điền sẵn khi chưa có dòng "Status" nào để lấy theo.
+    static QString fallbackLocalIp() { return QStringLiteral("127.0.0.1"); }
 
     /// File tham số nằm ngay cạnh file chạy, giống file cấu hình.
     static QString filePath();
